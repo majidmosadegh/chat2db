@@ -13,7 +13,7 @@ interface ChatMessagesProps {
 }
 
 export function ChatMessages({ messages, onFeedback, onSuggestionClick, language }: ChatMessagesProps) {
-  const isRTL = language === 'fa' || language === 'persian'
+  const isRTL = language === 'fa' || language === 'persian' // Empty state is always conversational
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const scrollToBottom = () => {

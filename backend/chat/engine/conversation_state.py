@@ -144,12 +144,15 @@ class ConversationStateManager:
                 # Build history from message pairs (user -> assistant)
                 messages_sorted = sorted(messages, key=lambda m: m.created_at)
                 for i in range(len(messages_sorted) - 1):
-                    if (messages_sorted[i].role == "user" and 
+                    if (messages_sorted[i].role == "user" and
                         messages_sorted[i + 1].role == "assistant"):
-                        history.append({
-                            "question": messages_sorted[i].content,
-                            "sql": messages_sorted[i + 1].generated_sql or ""
-                        })
+                        sql = messages_sorted[i + 1].generated_sql or ""
+                        # Only include pairs that have actual SQL queries (not empty or conversational responses)
+                        if sql.strip():
+                            history.append({
+                                "question": messages_sorted[i].content,
+                                "sql": sql
+                            })
 
                 # Keep only last N entries
                 history = history[-self.max_history_entries:]

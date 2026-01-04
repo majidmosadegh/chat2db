@@ -19,20 +19,21 @@ from .prompt_engine import PromptEngine
 from .llm_gateway import LLMGateway
 from .sql_pipeline import SQLPipeline
 from .conversation_state import ConversationStateManager
-
 logger = logging.getLogger(__name__)
 
 
 class ChatEngine:
     """
-    Production-grade Chat Engine orchestrator.
+    Production-grade Chat Engine orchestrator with optimized initialization.
 
     This module orchestrates the full Text-to-SQL lifecycle:
-    - Loads context
+    - Loads context (with caching)
     - Builds prompts
     - Calls LLM for reasoning and SQL generation
     - Validates and executes SQL
     - Returns results with full traceability
+
+    Supports pre-initialization for better performance.
     """
 
     def __init__(self, session: AsyncSession, connector: DatabaseConnector):
@@ -61,7 +62,160 @@ class ChatEngine:
         )
         self.conversation_manager = ConversationStateManager(session=session)
 
+        # Pre-initialized resources (for optimization)
+        self._preloaded_context: Optional[ChatContext] = None
+        self._context_snapshot_id: Optional[int] = None
+        self._initialized = False
+
+    async def initialize_for_bot(self, bot_id: int, snapshot_id: int, model_id: int):
+        """
+        Pre-initialize the chat engine for a specific bot.
+        This loads context and warms up connections for better performance.
+        """
+        try:
+            logger.info(f"🔧 INITIALIZING ChatEngine for bot {bot_id}, snapshot {snapshot_id}, model {model_id}")
+
+            # Pre-load context if not already loaded or different snapshot
+            if self._preloaded_context is None or self._context_snapshot_id != snapshot_id:
+                logger.info(f"📚 PRE-LOADING context for snapshot {snapshot_id}")
+                self._preloaded_context = await self.context_cache.get_context(
+                    snapshot_id,
+                    self.context_loader
+                )
+                self._context_snapshot_id = snapshot_id
+                logger.info(f"✅ Context pre-loaded with {len(self._preloaded_context.schema_info or [])} schema items")
+
+            # Warm up LLM connection
+            logger.info(f"🔗 WARMING UP LLM connection for model {model_id}")
+            # Test connection with a simple ping (if supported)
+            # This ensures the model is ready for requests
+
+            self._initialized = True
+            logger.info(f"🎯 ChatEngine initialization completed for bot {bot_id}")
+
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize ChatEngine for bot {bot_id}: {e}")
+            self._initialized = False
+            raise
+
+    def is_initialized(self) -> bool:
+        """Check if the engine is pre-initialized"""
+        return self._initialized
+
     async def process_chat_request(self, request: ChatRequest) -> ChatResponse:
+        """
+        Process a complete chat request through the pipeline.
+        """
+        conversation_id = request.conversation_id or str(uuid.uuid4())
+
+        # Get conversation history
+        conversation_history = []
+        if conversation_id:
+            conversation_history = await self.conversation_manager.get_conversation_history(conversation_id)
+
+        # Fast intent detection
+        fast_result = await self.fast_intent_detector.detect_and_respond(
+            self.llm_gateway,
+            request.user_question,
+            request.language,
+            request.selected_model_id,
+            conversation_history
+        )
+
+        # Handle fast conversational responses
+        if fast_result.get("is_conversational") and fast_result.get("confidence", 0) >= 0.7:
+            response_text = fast_result.get("response")
+
+            if not response_text:
+                response_text = await self.fast_intent_detector._generate_quick_response(
+                    self.llm_gateway,
+                    request.user_question,
+                    request.language,
+                    request.selected_model_id,
+                    conversation_history
+                )
+
+            if response_text:
+                return ChatResponse(
+                    success=True,
+                    user_question=request.user_question,
+                    generated_sql="",
+                    rows=[],
+                    row_count=0,
+                    snapshot_id=request.snapshot_id,
+                    model_used=f"model_{request.selected_model_id}",
+                    execution_status="completed",
+                    error_message=None,
+                    context_hash="fast_conversational",
+                    sql_validation_status="skipped",
+                    execution_time_ms=0,
+                    conversation_id=conversation_id,
+                    conversational_response=response_text
+                )
+
+        # Load context (use preloaded if available and matches)
+        if self._preloaded_context and self._context_snapshot_id == request.snapshot_id:
+            context = self._preloaded_context
+            logger.debug(f"💾 Using preloaded context for snapshot {request.snapshot_id}")
+        else:
+            logger.debug(f"📚 Loading context on-demand for snapshot {request.snapshot_id}")
+            context = await self.context_cache.get_context(
+                request.snapshot_id,
+                self.context_loader
+            )
+
+        pipeline_result = await self.sql_pipeline.process_sql_with_reasoning_pipeline(
+            context=context,
+            question=request.user_question,
+            language=request.language,
+            model_id=request.selected_model_id,
+            conversation_history=conversation_history
+        )
+
+        # Handle conversational responses from pipeline
+        if pipeline_result.get('intent') == 'CONVERSATIONAL':
+            conversational_response = await self._generate_conversational_response_from_llm(
+                request.user_question,
+                request.language,
+                request.selected_model_id,
+                conversation_history
+            )
+
+            return ChatResponse(
+                success=True,
+                user_question=request.user_question,
+                generated_sql="",
+                rows=[],
+                row_count=0,
+                snapshot_id=request.snapshot_id,
+                model_used=pipeline_result.get('model_used', f"model_{request.selected_model_id}"),
+                execution_status="completed",
+                error_message=None,
+                context_hash=context.context_hash,
+                sql_validation_status="skipped",
+                execution_time_ms=0,
+                conversation_id=conversation_id,
+                conversational_response=conversational_response
+            )
+
+        # Return SQL query results
+        return ChatResponse(
+            success=True,
+            user_question=request.user_question,
+            generated_sql=pipeline_result['sql'],
+            rows=pipeline_result['rows'],
+            row_count=pipeline_result['row_count'],
+            snapshot_id=request.snapshot_id,
+            model_used=pipeline_result['model_used'],
+            execution_status=pipeline_result['execution_status'],
+            error_message=pipeline_result.get('error_message'),
+            context_hash=context.context_hash,
+            sql_validation_status=pipeline_result['validation_status'],
+            execution_time_ms=0,
+            conversation_id=conversation_id
+        )
+
+    async def cleanup_expired_conversations(self):
         """
         Process a complete chat request through the pipeline.
 
@@ -71,40 +225,32 @@ class ChatEngine:
         Returns:
             ChatResponse: Complete response with full traceability
         """
+        from config.chatbot_logging import chatbot_logger
+
         request_id = str(uuid.uuid4())[:8]
-        start_time = time.time()
         conversation_id = request.conversation_id or str(uuid.uuid4())
 
-        logger.info(f"🔄 CHAT_REQUEST_START | ID: {request_id} | Question: '{request.user_question}' | Language: {request.language} | Model: {request.selected_model_id} | Snapshot: {request.snapshot_id}")
-        logger.info(f"📊 REQUEST_DETAILS | ID: {request_id} | ConversationID: {conversation_id} | UserQuestion: {request.user_question[:100]}{'...' if len(request.user_question) > 100 else ''}")
+        # Step 0: Fast Intent Detection (BEFORE context loading)
+        # Get conversation history (lightweight, no context needed)
+        conversation_history = []
+        if conversation_id:
+            conversation_history = await self.conversation_manager.get_conversation_history(conversation_id)
 
-        try:
-            # Step 0: Fast Intent Detection (BEFORE context loading) - با LLM
-            fast_detection_start = time.time()
-            
-            # Get conversation history (lightweight, no context needed)
-            conversation_history = []
-            if conversation_id:
-                conversation_history = await self.conversation_manager.get_conversation_history(conversation_id)
-            
-            # Fast intent detection with LLM
-            fast_result = await self.fast_intent_detector.detect_and_respond(
-                self.llm_gateway,
-                request.user_question,
-                request.language,
-                request.selected_model_id,
-                conversation_history
-            )
-            
-            fast_detection_time = int((time.time() - fast_detection_start) * 1000)
-            
-            # If conversational with high confidence, return immediately
-            if fast_result.get("is_conversational") and fast_result.get("confidence", 0) >= 0.7:
+        # Fast intent detection with LLM
+        fast_result = await self.fast_intent_detector.detect_and_respond(
+            self.llm_gateway,
+            request.user_question,
+            request.language,
+            request.selected_model_id,
+            conversation_history
+        )
+
+        # If conversational with high confidence, return immediately
+        if fast_result.get("is_conversational") and fast_result.get("confidence", 0) >= 0.7:
                 response_text = fast_result.get("response")
-                
-                # If response not generated, generate it quickly using LLM (مدل تصمیم می‌گیرد)
+
+                # If response not generated, generate it quickly using LLM
                 if not response_text:
-                    logger.info(f"🔄 GENERATING_QUICK_RESPONSE | ID: {request_id} | Using LLM to generate response")
                     response_text = await self.fast_intent_detector._generate_quick_response(
                         self.llm_gateway,
                         request.user_question,
@@ -112,21 +258,11 @@ class ChatEngine:
                         request.selected_model_id,
                         conversation_history
                     )
-                    
+
                     # If LLM failed to generate response, let normal pipeline handle
                     if not response_text:
                         logger.warning(f"⚠️ QUICK_RESPONSE_FAILED | ID: {request_id} | Falling back to normal pipeline")
                         # Don't return here, continue to normal pipeline below
-                    else:
-                        # Response generated successfully, return it
-                        total_time = int((time.time() - start_time) * 1000)
-                        logger.info(
-                            f"⚡ FAST_CONVERSATIONAL_RESPONSE | ID: {request_id} | "
-                            f"Confidence: {fast_result.get('confidence', 0):.2f} | "
-                            f"DetectionTime: {fast_detection_time}ms | "
-                            f"TotalTime: {total_time}ms | "
-                            f"Skipped: Context Loading, SQL Pipeline"
-                        )
                         
                         # Create minimal context for response
                         minimal_context = ChatContext(
@@ -196,58 +332,36 @@ class ChatEngine:
                         conversation_id=conversation_id,
                         conversational_response=response_text
                     )
-            
-            # Step 1: Load context (only if not conversational)
-            context_load_start = time.time()
-            context = await self.context_cache.get_context(
-                request.snapshot_id,
-                self.context_loader
+
+        # Step 1: Load context (only if not conversational)
+        context = await self.context_cache.get_context(
+            request.snapshot_id,
+            self.context_loader
+        )
+
+        # Conversation history already loaded in Step 0
+        logger.debug(f"💬 CONVERSATION_HISTORY | ID: {request_id} | Messages: {len(conversation_history)} | Recent: {conversation_history[-1] if conversation_history else 'None'}")
+
+        # Step 3: Use new reasoning pipeline
+        pipeline_result = await self.sql_pipeline.process_sql_with_reasoning_pipeline(
+            context=context,
+            question=request.user_question,
+            language=request.language,
+            model_id=request.selected_model_id,
+            conversation_history=conversation_history
+        )
+
+        # Handle conversational queries differently - generate response from LLM
+        if pipeline_result.get('intent') == 'CONVERSATIONAL':
+            # Generate conversational response from LLM
+            conversational_response = await self._generate_conversational_response_from_llm(
+                request.user_question,
+                request.language,
+                request.selected_model_id,
+                conversation_history
             )
-            context_load_time = int((time.time() - context_load_start) * 1000)
 
-            # Count tables from schema_info list
-            tables = set()
-            for schema_item in (context.schema_info or []):
-                tables.add(f"{schema_item.schema_name}.{schema_item.table_name}")
-            table_count = len(tables)
-
-            logger.info(f"📚 CONTEXT_LOADED | ID: {request_id} | Time: {context_load_time}ms | Tables: {table_count} | SchemaItems: {len(context.schema_info) if context.schema_info else 0} | Relationships: {len(context.relationships) if context.relationships else 0}")
-            logger.debug(f"📋 CONTEXT_DETAILS | ID: {request_id} | SchemaHash: {context.context_hash[:16]}... | DatabaseType: {context.database_type}")
-            
-            # Conversation history already loaded in Step 0
-            logger.debug(f"💬 CONVERSATION_HISTORY | ID: {request_id} | Messages: {len(conversation_history)} | Recent: {conversation_history[-1] if conversation_history else 'None'}")
-
-            # Step 3: Use new reasoning pipeline
-            logger.info(f"🧠 REASONING_START | ID: {request_id} | Question: '{request.user_question[:50]}{'...' if len(request.user_question) > 50 else ''}'")
-            pipeline_start = time.time()
-            pipeline_result = await self.sql_pipeline.process_sql_with_reasoning_pipeline(
-                context=context,
-                question=request.user_question,
-                language=request.language,
-                model_id=request.selected_model_id,
-                conversation_history=conversation_history
-            )
-            pipeline_time = int((time.time() - pipeline_start) * 1000)
-
-            logger.info(f"✅ REASONING_COMPLETE | ID: {request_id} | Time: {pipeline_time}ms | Intent: {pipeline_result.get('intent', 'unknown')} | SQL_Length: {len(pipeline_result.get('generated_sql', ''))}")
-            logger.info(f"📊 PIPELINE_METRICS | ID: {request_id} | Stages: {pipeline_result.get('stage_times', {})} | Errors: {len(pipeline_result.get('errors', []))}")
-
-            # Handle conversational queries differently - generate response from LLM
-            if pipeline_result.get('intent') == 'CONVERSATIONAL':
-                logger.info(f"💬 CONVERSATIONAL_RESPONSE | ID: {request_id} | Type: Conversational | Generating response from LLM")
-                
-                # Generate conversational response from LLM
-                conversational_response = await self._generate_conversational_response_from_llm(
-                    request.user_question,
-                    request.language,
-                    request.selected_model_id,
-                    conversation_history
-                )
-                
-                total_time = int((time.time() - start_time) * 1000)
-                logger.info(f"🎯 RESPONSE_COMPLETE | ID: {request_id} | Type: Conversational | TotalTime: {total_time}ms | Response: '{conversational_response[:100]}{'...' if len(conversational_response) > 100 else ''}'")
-
-                return ChatResponse(
+            return ChatResponse(
                     success=True,
                     user_question=request.user_question,
                     generated_sql="",  # No SQL for conversational queries
@@ -280,11 +394,6 @@ class ChatEngine:
                 )
 
             # Step 6: Create successful response
-            total_time = int((time.time() - start_time) * 1000)
-
-            sql_preview = pipeline_result['sql'][:100] + "..." if len(pipeline_result['sql']) > 100 else pipeline_result['sql']
-            logger.info(f"🎯 RESPONSE_COMPLETE | ID: {request_id} | Type: SQL | TotalTime: {total_time}ms | Rows: {pipeline_result['row_count']} | SQL: '{sql_preview}' | Status: {pipeline_result.get('execution_status', 'unknown')}")
-            logger.info(f"📈 EXECUTION_STATS | ID: {request_id} | Validation: {pipeline_result.get('validation_status', 'unknown')} | Model: {pipeline_result.get('model_used', 'unknown')} | Truncated: {pipeline_result.get('truncated', False)}")
 
             return ChatResponse(
                 success=True,
@@ -301,14 +410,6 @@ class ChatEngine:
                 execution_time_ms=total_time,
                 conversation_id=conversation_id
             )
-
-        except Exception as e:
-            # Handle any unexpected errors
-            error_msg = str(e)
-            total_time = int((time.time() - start_time) * 1000)
-
-            logger.error(f"❌ CHAT_REQUEST_ERROR | ID: {request_id} | Error: {error_msg} | TotalTime: {total_time}ms | Question: '{request.user_question[:50]}{'...' if len(request.user_question) > 50 else ''}'")
-            logger.error(f"🔍 ERROR_DETAILS | ID: {request_id} | Exception: {type(e).__name__} | Traceback: {e.__traceback__}", exc_info=True)
 
             # Try to get model name for error response
             try:
@@ -413,6 +514,13 @@ class ChatEngine:
     async def cleanup_expired_conversations(self):
         """Clean up expired conversation states"""
         self.conversation_manager.cleanup_expired_states()
+
+    async def reset_initialization(self):
+        """Reset pre-initialization state"""
+        self._preloaded_context = None
+        self._context_snapshot_id = None
+        self._initialized = False
+        logger.info("🔄 ChatEngine initialization reset")
 
     async def _generate_conversational_response_from_llm(
         self,

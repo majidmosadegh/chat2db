@@ -1,7 +1,11 @@
 "use client"
 
 import { Badge } from "@/components/ui/badge"
-import { Bot } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Bot, Trash2 } from "lucide-react"
+import { useToast } from "@/lib/use-toast"
+import { apiUrls } from "@/config/api"
+import { useState } from "react"
 
 export interface ChatHeaderProps {
   sessionId?: string | null
@@ -10,6 +14,7 @@ export interface ChatHeaderProps {
 }
 
 export function ChatHeader({ sessionId, chatMode, isOnline = true }: ChatHeaderProps) {
+
   return (
     <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-3 sm:p-4 flex-shrink-0" role="banner">
       <div className="flex items-center justify-between gap-2">

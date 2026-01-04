@@ -8,6 +8,7 @@ export const apiUrls = {
   chatBotSessions: (botId: number) => `${API_BASE_URL}/api/chat/bots/${botId}/sessions`,
   chatSessions: `${API_BASE_URL}/api/chat/sessions`,
   chatSession: (id: string) => `${API_BASE_URL}/api/chat/sessions/${id}`,
+  deleteAllSessions: `${API_BASE_URL}/api/chat/sessions`,
   feedback: `${API_BASE_URL}/api/chat-orchestrator/feedback`,
   models: `${API_BASE_URL}/api/models`,
   schemaSnapshots: `${API_BASE_URL}/api/schema/snapshots`,

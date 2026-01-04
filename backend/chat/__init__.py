@@ -1,18 +1,12 @@
 # Chat module for Text-to-SQL execution
 
-# Production-grade Chat Engine (recommended)
-from .engine import ChatEngine
+# Import only essential components to avoid circular imports
 from .schemas import ChatRequest, ChatResponse, ChatLanguage
-from .sql_guard import SQLGuard
-from .executor import SQLExecutor
 
 __all__ = [
-    # Production-grade components
-    "ChatEngine",
+    # Essential components only
     "router",
     "ChatRequest",
     "ChatResponse",
-    "ChatLanguage",
-    "SQLGuard",
-    "SQLExecutor"
+    "ChatLanguage"
 ]

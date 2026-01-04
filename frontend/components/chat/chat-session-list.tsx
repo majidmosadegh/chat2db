@@ -28,6 +28,7 @@ export function ChatSessionList({ onSelectSession, onNewChat, botId }: ChatSessi
   const [sessions, setSessions] = useState<ChatSession[]>([])
   const [loading, setLoading] = useState(true)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [deletingAll, setDeletingAll] = useState(false)
   const { toast } = useToast()
 
   const loadSessions = async () => {
@@ -83,6 +84,43 @@ export function ChatSessionList({ onSelectSession, onNewChat, botId }: ChatSessi
       })
     } finally {
       setDeletingId(null)
+    }
+  }
+
+  const handleDeleteAll = async () => {
+    if (!confirm("Are you sure you want to delete ALL chat sessions? This action cannot be undone!")) {
+      return
+    }
+
+    try {
+      setDeletingAll(true)
+      const url = botId
+        ? `${apiUrls.deleteAllSessions}?confirm=true&bot_id=${botId}`
+        : `${apiUrls.deleteAllSessions}?confirm=true`
+
+      const response = await fetch(url, {
+        method: "DELETE",
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        toast({
+          title: "Success",
+          description: `Deleted ${data.deleted_sessions} chat sessions successfully`,
+        })
+        await loadSessions()
+      } else {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.detail || "Failed to delete all sessions")
+      }
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete all chat sessions",
+        variant: "destructive",
+      })
+    } finally {
+      setDeletingAll(false)
     }
   }
 
@@ -159,8 +197,23 @@ export function ChatSessionList({ onSelectSession, onNewChat, botId }: ChatSessi
           </Card>
         ) : (
           <>
-            {/* Show New Chat button at top when there are sessions */}
-            <div className="mb-4 flex justify-end">
+            {/* Show action buttons at top when there are sessions */}
+            <div className="mb-4 flex flex-col sm:flex-row justify-end gap-2">
+              <Button
+                onClick={handleDeleteAll}
+                variant="destructive"
+                size="lg"
+                className="gap-2 w-full sm:w-auto"
+                disabled={deletingAll}
+              >
+                <Trash2 className="h-5 w-5" />
+                <span className="hidden sm:inline">
+                  {deletingAll ? "Deleting..." : "Delete All Sessions"}
+                </span>
+                <span className="sm:hidden">
+                  {deletingAll ? "Deleting..." : "Delete All"}
+                </span>
+              </Button>
               <Button onClick={onNewChat} size="lg" className="gap-2 w-full sm:w-auto">
                 <Plus className="h-5 w-5" />
                 <span className="hidden sm:inline">New Chat Session</span>

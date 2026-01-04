@@ -1,17 +1,63 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from typing import Optional, List
+from typing import Optional, List, Dict
 from loguru import logger
 from pydantic import BaseModel
 from datetime import datetime
 import uuid
 import json
 
-from .engine import ChatEngine
+from .engine.chat_engine import ChatEngine
+from config.chatbot_logging import chatbot_logger, create_request_context
 from .schemas import ChatRequest, ChatResponse, ChatLanguage
 from api.database import get_db_session
 from api.db_models import ChatBot, ChatSession, ChatMessage, SchemaSnapshot, LLMModel
+
+# Global ChatEngine cache for optimization
+_chat_engine_cache: Dict[int, ChatEngine] = {}
+
+async def get_or_create_chat_engine(bot_id: int, session: AsyncSession) -> ChatEngine:
+    """
+    Get or create a pre-initialized ChatEngine for a bot.
+    This provides significant performance improvements by reusing initialized engines.
+    """
+    if bot_id in _chat_engine_cache:
+        engine = _chat_engine_cache[bot_id]
+        if engine.is_initialized():
+            logger.debug(f"💾 Using cached ChatEngine for bot {bot_id}")
+            return engine
+        else:
+            logger.warning(f"⚠️ Cached ChatEngine for bot {bot_id} is not initialized, recreating")
+            # Remove from cache if not initialized
+            del _chat_engine_cache[bot_id]
+
+    # Get bot details
+    bot_stmt = select(ChatBot).where(ChatBot.id == bot_id)
+    bot_result = await session.execute(bot_stmt)
+    bot = bot_result.scalar_one_or_none()
+
+    if not bot:
+        raise HTTPException(status_code=404, detail="Chat bot not found")
+
+    # Create database connector
+    from db.dependencies import get_database_connector
+    connector = await get_database_connector(bot.snapshot_id, session)
+
+    # Create and initialize ChatEngine
+    engine = ChatEngine(session, connector)
+
+    try:
+        # Pre-initialize the engine for better performance
+        await engine.initialize_for_bot(bot.id, bot.snapshot_id, bot.model_id)
+        _chat_engine_cache[bot_id] = engine
+        logger.info(f"✅ Created and cached initialized ChatEngine for bot {bot_id}")
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to pre-initialize ChatEngine for bot {bot_id}: {e}")
+        # Still cache it, but mark as not initialized
+        _chat_engine_cache[bot_id] = engine
+
+    return engine
 
 router = APIRouter(tags=["chat"])
 
@@ -276,6 +322,13 @@ async def delete_chat_bot(
         if not bot:
             raise HTTPException(status_code=404, detail="Chat bot not found")
 
+        # Clean up cached ChatEngine
+        if bot_id in _chat_engine_cache:
+            engine = _chat_engine_cache[bot_id]
+            await engine.reset_initialization()
+            del _chat_engine_cache[bot_id]
+            logger.info(f"🧹 Cleaned up cached ChatEngine for deleted bot {bot_id}")
+
         # Delete bot (cascade will delete sessions and messages)
         await session.delete(bot)
         await session.commit()
@@ -307,7 +360,7 @@ async def list_bot_sessions(
         if not bot:
             raise HTTPException(status_code=404, detail="Chat bot not found")
 
-        # Query sessions
+        # Query all sessions for this bot
         stmt = (
             select(ChatSession)
             .where(ChatSession.bot_id == bot_id)
@@ -540,6 +593,96 @@ async def delete_chat_session(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.delete("/sessions")
+async def delete_all_sessions(
+    session: AsyncSession = Depends(get_db_session),
+    confirm: bool = Query(False, description="Confirmation flag to prevent accidental deletion"),
+    bot_id: int = Query(None, description="Bot ID to delete sessions for specific bot")
+):
+    """Delete all chat sessions and their messages"""
+    try:
+        if not confirm:
+            raise HTTPException(
+                status_code=400,
+                detail="Please confirm deletion by setting confirm=true parameter"
+            )
+
+        if bot_id:
+            try:
+                # Get count first
+                count_stmt = select(func.count(ChatSession.id)).where(ChatSession.bot_id == bot_id)
+                result = await session.execute(count_stmt)
+                sessions_count = result.scalar() or 0
+
+                logger.info(f"Found {sessions_count} sessions to delete for bot_id={bot_id}")
+
+                if sessions_count == 0:
+                    return {
+                        "message": f"No sessions found for bot {bot_id}",
+                        "deleted_sessions": 0
+                    }
+
+                # Delete messages first (cascade should handle this, but explicit is safer)
+                from sqlalchemy import text
+                delete_messages_stmt = text(
+                    "DELETE FROM chat_messages WHERE session_id IN "
+                    "(SELECT id FROM chat_sessions WHERE bot_id = :bot_id)"
+                )
+                await session.execute(delete_messages_stmt, {"bot_id": bot_id})
+
+                # Delete sessions
+                delete_sessions_stmt = text("DELETE FROM chat_sessions WHERE bot_id = :bot_id")
+                result = await session.execute(delete_sessions_stmt, {"bot_id": bot_id})
+                deleted_count = result.rowcount
+
+                await session.commit()
+
+                logger.info(f"Successfully deleted {deleted_count} sessions and their messages for bot {bot_id}")
+
+                return {
+                    "message": f"Successfully deleted {deleted_count} chat sessions and all their messages for bot {bot_id}",
+                    "deleted_sessions": deleted_count
+                }
+
+            except Exception as e:
+                await session.rollback()
+                logger.error(f"Error deleting sessions for bot {bot_id}: {e}")
+                raise HTTPException(status_code=500, detail=f"Failed to delete sessions: {str(e)}")
+        else:
+            # Delete all sessions (no bot filter)
+            count_stmt = select(func.count(ChatSession.id))
+            result = await session.execute(count_stmt)
+            sessions_count = result.scalar() or 0
+
+            logger.info(f"About to delete ALL {sessions_count} sessions")
+
+            # Delete all messages first
+            await session.execute(select(ChatMessage))
+
+            # Delete all sessions
+            await session.execute(select(ChatSession))
+
+            await session.commit()
+
+            logger.info(f"Deleted ALL {sessions_count} chat sessions and all their messages")
+
+            return {
+                "message": f"Successfully deleted all {sessions_count} chat sessions and all their messages",
+                "deleted_sessions": sessions_count
+            }
+
+        return {
+            "message": f"Successfully deleted {sessions_count} chat sessions and all their messages" + (f" for bot {bot_id}" if bot_id else ""),
+            "deleted_sessions": sessions_count
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        await session.rollback()
+        logger.error(f"Failed to delete all chat sessions: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/execute", response_model=ChatResponse)
 async def execute_chat(
     request: ChatRequest,
@@ -556,9 +699,11 @@ async def execute_chat(
     - SQL validation and execution
     - Complete traceability
     """
-    try:
-        logger.info(f"Chat execution requested: snapshot_id={request.snapshot_id}, model_id={request.selected_model_id}, question='{request.user_question[:50]}...'")
+    # Initialize variables for error handling
+    effective_snapshot_id = request.snapshot_id
+    effective_model_id = request.selected_model_id
 
+    try:
         # Get or create chat session
         conversation_id = request.conversation_id
         chat_session_db = None
@@ -582,99 +727,108 @@ async def execute_chat(
         bot_stmt = select(ChatBot).where(ChatBot.id == chat_session_db.bot_id)
         bot_result = await session.execute(bot_stmt)
         bot = bot_result.scalar_one_or_none()
-        
+
         if not bot:
             raise HTTPException(status_code=404, detail="Chat bot not found")
 
-        # Use bot's settings for the request (store values before using them)
+        # Update effective values from bot settings
         effective_snapshot_id = bot.snapshot_id
         effective_model_id = bot.model_id
-        bot_language_str = bot.language
-        
-        # Convert language string to ChatLanguage enum
-        if bot_language_str in ["en", "english"]:
-            effective_language = ChatLanguage.ENGLISH
-        elif bot_language_str in ["fa", "persian", "farsi"]:
-            effective_language = ChatLanguage.PERSIAN
-        else:
-            effective_language = ChatLanguage.ENGLISH
 
-        # Save user message
-        user_message = ChatMessage(
-            session_id=chat_session_db.id,
+        with chatbot_logger.request_context(create_request_context(
+            request_id=str(uuid.uuid4())[:8],
             conversation_id=conversation_id,
-            role="user",
-            content=request.user_question
-        )
-        session.add(user_message)
-
-        # Create database connector for the snapshot (use bot's snapshot)
-        from db.dependencies import get_database_connector
-        connector = await get_database_connector(effective_snapshot_id, session)
-
-        # Initialize ChatEngine - always use real mode
-        chat_engine = ChatEngine(session, connector)
-
-        # Process the chat request with bot's settings
-        chat_request = ChatRequest(
-            snapshot_id=effective_snapshot_id,
-            selected_model_id=effective_model_id,
-            language=effective_language,
             user_question=request.user_question,
-            conversation_id=conversation_id
-        )
-        response = await chat_engine.process_chat_request(chat_request)
+            snapshot_id=bot.snapshot_id,
+            model_id=bot.model_id,
+            language=bot.language,
+            bot_id=chat_session_db.bot_id,
+            bot_name=bot.name
+        )):
 
-        # Update response with conversation_id
-        if not response.conversation_id:
-            response.conversation_id = conversation_id
+            # Use bot's settings for the request (store values before using them)
+            effective_snapshot_id = bot.snapshot_id
+            effective_model_id = bot.model_id
+            bot_language_str = bot.language
 
-        logger.info(f"Chat execution completed: success={response.success}, sql_generated={len(response.generated_sql) > 0}, rows_returned={response.row_count}")
+            # Convert language string to ChatLanguage enum
+            if bot_language_str in ["en", "english"]:
+                effective_language = ChatLanguage.ENGLISH
+            elif bot_language_str in ["fa", "persian", "farsi"]:
+                effective_language = ChatLanguage.PERSIAN
+            else:
+                effective_language = ChatLanguage.ENGLISH
 
-        # Save assistant message
-        assistant_content = response.conversational_response or (
-            f"Generated SQL:\n```sql\n{response.generated_sql}\n```" if response.generated_sql else "No SQL generated"
-        )
-        
-        metadata_dict = {
-            "success": response.success,
-            "execution_status": response.execution_status,
-            "sql_validation_status": response.sql_validation_status,
-            "context_hash": response.context_hash,
-            "conversational_response": response.conversational_response
-        }
+            # Save user message
+            user_message = ChatMessage(
+                session_id=chat_session_db.id,
+                conversation_id=conversation_id,
+                role="user",
+                content=request.user_question
+            )
+            session.add(user_message)
 
-        assistant_message = ChatMessage(
-            session_id=chat_session_db.id,
-            conversation_id=conversation_id,
-            role="assistant",
-            content=assistant_content,
-            generated_sql=response.generated_sql,
-            execution_status=response.execution_status,
-            row_count=response.row_count,
-            execution_time_ms=response.execution_time_ms,
-            message_metadata=json.dumps(metadata_dict)
-        )
-        session.add(assistant_message)
+            # Get or create optimized ChatEngine for this bot
+            chat_engine = await get_or_create_chat_engine(chat_session_db.bot_id, session)
 
-        # Update session message count and last activity
-        chat_session_db.message_count += 2  # user + assistant
-        chat_session_db.last_activity_at = datetime.utcnow()
-        
-        # Update title from first user question if still default
-        if not chat_session_db.title or chat_session_db.title.startswith("Session "):
-            first_question = request.user_question[:50]
-            if len(request.user_question) > 50:
-                first_question += "..."
-            chat_session_db.title = first_question
+            # Process the chat request with bot's settings
+            chat_request = ChatRequest(
+                snapshot_id=effective_snapshot_id,
+                selected_model_id=effective_model_id,
+                language=effective_language,
+                user_question=request.user_question,
+                conversation_id=conversation_id
+            )
+            response = await chat_engine.process_chat_request(chat_request)
 
-        # Update bot statistics
-        bot.total_message_count += 2
-        bot.last_activity_at = datetime.utcnow()
+            # Update response with conversation_id
+            if not response.conversation_id:
+                response.conversation_id = conversation_id
 
-        await session.commit()
+            # Save assistant message
+            assistant_content = response.conversational_response or (
+                f"Generated SQL:\n```sql\n{response.generated_sql}\n```" if response.generated_sql else "No SQL generated"
+            )
 
-        return response
+            metadata_dict = {
+                "success": response.success,
+                "execution_status": response.execution_status,
+                "sql_validation_status": response.sql_validation_status,
+                "context_hash": response.context_hash,
+                "conversational_response": response.conversational_response
+            }
+
+            assistant_message = ChatMessage(
+                session_id=chat_session_db.id,
+                conversation_id=conversation_id,
+                role="assistant",
+                content=assistant_content,
+                generated_sql=response.generated_sql,
+                execution_status=response.execution_status,
+                row_count=response.row_count,
+                execution_time_ms=response.execution_time_ms,
+                message_metadata=json.dumps(metadata_dict)
+            )
+            session.add(assistant_message)
+
+            # Update session message count and last activity
+            chat_session_db.message_count += 2  # user + assistant
+            chat_session_db.last_activity_at = datetime.utcnow()
+
+            # Update title from first user question if still default
+            if not chat_session_db.title or chat_session_db.title.startswith("Session "):
+                first_question = request.user_question[:50]
+                if len(request.user_question) > 50:
+                    first_question += "..."
+                chat_session_db.title = first_question
+
+            # Update bot statistics
+            bot.total_message_count += 2
+            bot.last_activity_at = datetime.utcnow()
+
+            await session.commit()
+
+            return response
 
     except HTTPException:
         raise
@@ -702,3 +856,56 @@ async def execute_chat(
             execution_time_ms=0,
             conversation_id=request.conversation_id
         )
+
+
+@router.post("/bots/{bot_id}/refresh")
+async def refresh_bot_cache(
+    bot_id: int,
+    session: AsyncSession = Depends(get_db_session)
+):
+    """Refresh the cached ChatEngine for a bot (force re-initialization)"""
+    try:
+        # Check if bot exists
+        bot_stmt = select(ChatBot).where(ChatBot.id == bot_id)
+        bot_result = await session.execute(bot_stmt)
+        bot = bot_result.scalar_one_or_none()
+
+        if not bot:
+            raise HTTPException(status_code=404, detail="Chat bot not found")
+
+        # Reset existing cache if any
+        if bot_id in _chat_engine_cache:
+            engine = _chat_engine_cache[bot_id]
+            await engine.reset_initialization()
+            logger.info(f"🔄 Reset ChatEngine cache for bot {bot_id}")
+
+        # Create fresh engine
+        engine = await get_or_create_chat_engine(bot_id, session)
+
+        return {
+            "message": "Chat bot cache refreshed successfully",
+            "initialized": engine.is_initialized(),
+            "bot_id": bot_id
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to refresh bot cache: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/cache/status")
+async def get_cache_status():
+    """Get status of cached ChatEngines"""
+    cache_info = {}
+    for bot_id, engine in _chat_engine_cache.items():
+        cache_info[str(bot_id)] = {
+            "initialized": engine.is_initialized(),
+            "context_loaded": engine._preloaded_context is not None,
+            "snapshot_id": engine._context_snapshot_id
+        }
+
+    return {
+        "cached_bots": len(_chat_engine_cache),
+        "cache_details": cache_info
+    }

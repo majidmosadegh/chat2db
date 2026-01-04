@@ -49,9 +49,14 @@ interface ChatMessageProps {
 }
 
 export function ChatMessage({ message, onFeedback, language }: ChatMessageProps) {
-  const isRTL = language === 'fa' || language === 'persian'
+  // RTL only for Persian language AND conversational content (not SQL queries/tables)
+  const isPersianLanguage = language === 'fa' || language === 'persian'
+  const isConversational = message.metadata?.intent_type === 'conversational' ||
+                          message.metadata?.conversational_response ||
+                          (!message.metadata?.results && !message.metadata?.sql_query)
+  const isRTL = isPersianLanguage && isConversational
   const isUserMessage = message.type === 'user'
-  const messageDirection = isUserMessage ? (isRTL ? 'rtl' : 'ltr') : 'ltr'
+  const messageDirection = isRTL ? 'rtl' : 'ltr'
   const decodePersianText = (text: string) => {
     try {
       // Try to decode Persian text that might be encoded
@@ -265,27 +270,27 @@ export function ChatMessage({ message, onFeedback, language }: ChatMessageProps)
             : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700'
         }`} dir={messageDirection}>
           <CardContent className="p-3 sm:p-4" dir={messageDirection}>
-            {/* Message Metadata */}
-            {message.metadata && (
-              <div className="flex items-center gap-1 sm:gap-2 mb-2 flex-wrap">
+            {/* Message Metadata - Only show for assistant messages */}
+            {message.metadata && message.type === 'assistant' && (
+              <div className={`flex items-center gap-1 sm:gap-2 mb-2 flex-wrap ${isRTL ? 'flex-row-reverse' : ''}`}>
                 {message.metadata.intent_type && (
                   <Badge className={`text-xs ${getIntentColor(message.metadata.intent_type)}`}>
                     {getIntentIcon(message.metadata.intent_type)}
-                    <span className="ml-1 capitalize hidden sm:inline">
+                    <span className={`ml-1 capitalize hidden sm:inline ${isRTL ? 'mr-1 ml-0' : ''}`}>
                       {message.metadata.intent_type.replace('_', ' ')}
                     </span>
                   </Badge>
                 )}
                 {message.metadata.execution_time && (
                   <Badge variant="outline" className="text-xs">
-                    <Clock className="h-3 w-3 mr-1" />
+                    <Clock className={`h-3 w-3 ${isRTL ? 'ml-1 mr-0' : 'mr-1'}`} />
                     <span className="hidden sm:inline">{message.metadata.execution_time}ms</span>
                     <span className="sm:hidden">{message.metadata.execution_time}</span>
                   </Badge>
                 )}
                 {message.metadata.row_count !== undefined && (
                   <Badge variant="outline" className="text-xs">
-                    <Database className="h-3 w-3 mr-1" />
+                    <Database className={`h-3 w-3 ${isRTL ? 'ml-1 mr-0' : 'mr-1'}`} />
                     <span className="hidden sm:inline">{message.metadata.row_count} rows</span>
                     <span className="sm:hidden">{message.metadata.row_count}</span>
                   </Badge>
@@ -294,9 +299,9 @@ export function ChatMessage({ message, onFeedback, language }: ChatMessageProps)
             )}
 
             {/* Message Content */}
-            <div className="prose prose-sm max-w-none dark:prose-invert break-words overflow-wrap-anywhere">
+            <div className={`prose prose-sm max-w-none dark:prose-invert break-words overflow-wrap-anywhere ${isRTL ? 'rtl' : 'ltr'}`}>
               <div className="overflow-x-auto w-full">
-                <div className="min-w-0">
+                <div className={`min-w-0 ${isRTL ? 'text-right' : 'text-left'}`}>
                   {formatMessageContent(message.content)}
                 </div>
               </div>
@@ -305,17 +310,17 @@ export function ChatMessage({ message, onFeedback, language }: ChatMessageProps)
             {/* Execution Results Display */}
             {message.metadata?.results && Array.isArray(message.metadata.results) && message.metadata.results.length > 0 && (
               <div className="mt-3 sm:mt-4">
-                <div className="bg-gray-50 dark:bg-gray-900 rounded p-3 sm:p-4">
-                  <h4 className="text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <div className={`bg-gray-50 dark:bg-gray-900 rounded p-3 sm:p-4 ${isRTL ? 'rtl' : 'ltr'}`}>
+                  <h4 className={`text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 ${isRTL ? 'text-right' : 'text-left'}`}>
                     Query Results ({message.metadata.results.length} rows)
                   </h4>
                   <div className="overflow-x-auto max-h-96 border border-gray-200 dark:border-gray-700 rounded -mx-2 sm:mx-0">
-                    <div className="min-w-full inline-block">
-                      <table className="min-w-full text-xs">
+                    <div className={`min-w-full inline-block ${isRTL ? 'rtl' : 'ltr'}`}>
+                      <table className={`min-w-full text-xs ${isRTL ? 'rtl' : 'ltr'}`}>
                         <thead className="sticky top-0 bg-gray-100 dark:bg-gray-800 z-10">
                           <tr className="border-b border-gray-300 dark:border-gray-600">
                             {Object.keys(message.metadata.results[0]).map((col: string, index: number) => (
-                              <th key={index} className="text-left px-2 sm:px-3 py-2 font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                              <th key={index} className={`${isRTL ? 'text-right' : 'text-left'} px-2 sm:px-3 py-2 font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap`}>
                                 {col}
                               </th>
                             ))}
@@ -325,7 +330,7 @@ export function ChatMessage({ message, onFeedback, language }: ChatMessageProps)
                           {message.metadata.results.map((row: any, rowIndex: number) => (
                             <tr key={rowIndex} className="border-b border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800">
                               {Object.keys(row).map((col: string, colIndex: number) => (
-                                <td key={colIndex} className="px-2 sm:px-3 py-2 text-gray-800 dark:text-gray-200 whitespace-nowrap max-w-[200px] sm:max-w-none truncate sm:truncate-none">
+                                <td key={colIndex} className={`${isRTL ? 'text-right' : 'text-left'} px-2 sm:px-3 py-2 text-gray-800 dark:text-gray-200 whitespace-nowrap max-w-[200px] sm:max-w-none truncate sm:truncate-none`}>
                                   {String(row[col] ?? '')}
                                 </td>
                               ))}
@@ -343,12 +348,12 @@ export function ChatMessage({ message, onFeedback, language }: ChatMessageProps)
             {message.metadata?.sql_query && message.metadata.sql_query.trim() &&
              !message.content.includes('Generated SQL') && (
               <div className="mt-3">
-                <div className="bg-gray-50 dark:bg-gray-900 rounded p-3">
-                  <div className="text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <div className={`bg-gray-50 dark:bg-gray-900 rounded p-3 ${isRTL ? 'rtl' : 'ltr'}`}>
+                  <div className={`text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 ${isRTL ? 'text-right' : 'text-left'}`}>
                     SQL Query:
                   </div>
                   <div className="overflow-x-auto -mx-1 sm:mx-0">
-                    <pre className="text-xs bg-gray-800 text-green-400 p-2 sm:p-3 rounded whitespace-pre-wrap break-words overflow-x-auto">
+                    <pre className={`text-xs bg-gray-800 text-green-400 p-2 sm:p-3 rounded whitespace-pre-wrap break-words overflow-x-auto ${isRTL ? 'text-right' : 'text-left'}`}>
                       <code>{message.metadata.sql_query}</code>
                     </pre>
                   </div>
@@ -358,12 +363,12 @@ export function ChatMessage({ message, onFeedback, language }: ChatMessageProps)
 
             {/* Error Display */}
             {message.metadata?.error && (
-              <div className="mt-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded">
-                <div className="flex items-center gap-2 text-red-800 dark:text-red-200">
+              <div className={`mt-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded ${isRTL ? 'rtl' : 'ltr'}`}>
+                <div className={`flex items-center gap-2 text-red-800 dark:text-red-200 ${isRTL ? 'flex-row-reverse' : ''}`}>
                   <AlertCircle className="h-4 w-4 flex-shrink-0" />
                   <span className="text-xs sm:text-sm font-medium">Error</span>
                 </div>
-                <p className="text-xs sm:text-sm text-red-700 dark:text-red-300 mt-1 break-words">
+                <p className={`text-xs sm:text-sm text-red-700 dark:text-red-300 mt-1 break-words ${isRTL ? 'text-right' : 'text-left'}`}>
                   {message.metadata.error}
                 </p>
               </div>
@@ -373,7 +378,7 @@ export function ChatMessage({ message, onFeedback, language }: ChatMessageProps)
 
         {/* Feedback Buttons for Assistant Messages */}
         {message.type === 'assistant' && message.metadata && !message.metadata.error && onFeedback && (
-          <div className="flex gap-1 mt-2 opacity-0 group-hover:opacity-100 transition-opacity" role="group" aria-label="Rate this response">
+          <div className={`flex gap-1 mt-2 opacity-0 group-hover:opacity-100 transition-opacity ${isRTL ? 'flex-row-reverse' : ''}`} role="group" aria-label="Rate this response">
             <Button
               size="sm"
               variant="outline"

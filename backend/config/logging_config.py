@@ -225,3 +225,10 @@ def log_performance(operation: str, duration: float, metadata: Dict[str, Any] = 
 
 # Initialize logging on import
 setup_logging()
+
+# Initialize chatbot logger
+try:
+    from .chatbot_logging import chatbot_logger
+    # Chatbot logger is now available globally
+except ImportError:
+    pass  # Will be imported when needed

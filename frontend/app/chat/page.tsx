@@ -10,6 +10,7 @@ import {
   TypingIndicator,
   ChatSettings,
   ChatSessionList,
+  ChatSidebar,
   ChatSession,
   ChatBotList,
   ChatBot
@@ -44,6 +45,7 @@ export default function ChatPage() {
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [currentBot, setCurrentBot] = useState<ChatBot | null>(null)
   const [currentSession, setCurrentSession] = useState<ChatSession | null>(null)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const { toast } = useToast()
 
   // Load bot sessions
@@ -58,6 +60,7 @@ export default function ChatPage() {
       const data = await response.json()
       setCurrentBot(bot)
       setViewMode('bot-sessions')
+      setSidebarCollapsed(false) // Reset sidebar state when switching bots
       
       // Return data for potential use
       return data
@@ -74,30 +77,22 @@ export default function ChatPage() {
     }
   }
 
-  // Create new session for bot and start chat
+  // Start new chat session (don't create in database yet)
   const startNewSession = async (bot: ChatBot) => {
     try {
       setIsLoading(true)
-      const response = await fetch(apiUrls.chatBotSessions(bot.id), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({})
-      })
 
-      if (!response.ok) {
-        const errorText = await response.text()
-        throw new Error(`Failed to create session: ${errorText}`)
-      }
+      // Generate a temporary conversation ID for frontend state
+      const tempConversationId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
 
-      const data = await response.json()
+      // Set frontend state without creating database session
       setCurrentBot(bot)
-      setConversationId(data.conversation_id)
-      setCurrentSession(data.session)
+      setConversationId(tempConversationId)
+      setCurrentSession(null) // No database session yet
       setMessages([])
       setViewMode('chat')
-      
+      setSidebarCollapsed(false) // Reset sidebar state when entering chat
+
       // Small delay to ensure state is updated
       setTimeout(() => {
         setIsLoading(false)
@@ -122,7 +117,21 @@ export default function ChatPage() {
       }
 
       const data = await response.json()
-      
+
+      // Set current bot if not already set (get from session.bot_id)
+      if (!currentBot) {
+        try {
+          // Fetch bot details from API
+          const botResponse = await fetch(apiUrls.chatBot(session.bot_id))
+          if (botResponse.ok) {
+            const sessionBot = await botResponse.json()
+            setCurrentBot(sessionBot)
+          }
+        } catch (error) {
+          console.error('Failed to load bot for session:', error)
+        }
+      }
+
       setCurrentSession(session)
       setConversationId(session.conversation_id)
 
@@ -168,9 +177,34 @@ export default function ChatPage() {
     setIsLoading(true)
 
     try {
+      // Check if this is a temporary session that needs to be created
+      let actualConversationId = conversationId
+      if (conversationId.startsWith('temp_')) {
+        // Create the session in database first
+        console.log('Creating new session in database...')
+        const createSessionResponse = await fetch(apiUrls.chatBotSessions(currentBot.id), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({})
+        })
+
+        if (!createSessionResponse.ok) {
+          const errorText = await createSessionResponse.text()
+          throw new Error(`Failed to create session: ${errorText}`)
+        }
+
+        const sessionData = await createSessionResponse.json()
+        actualConversationId = sessionData.conversation_id
+        setConversationId(actualConversationId)
+        setCurrentSession(sessionData.session)
+        console.log('Session created:', actualConversationId)
+      }
+
       // Use bot's settings for the request
       const languageCode = currentBot.language === 'persian' ? 'fa' : currentBot.language === 'english' ? 'en' : 'en'
-      
+
       const response = await fetch(apiUrls.chat, {
         method: 'POST',
         headers: {
@@ -181,7 +215,7 @@ export default function ChatPage() {
           selected_model_id: currentBot.model_id,
           language: languageCode,
           user_question: message,
-          conversation_id: conversationId
+          conversation_id: actualConversationId
         }),
       })
 
@@ -231,6 +265,16 @@ export default function ChatPage() {
       }
 
       setMessages(prev => [...prev, assistantMessage])
+
+      // If this was the first message (session just created), refresh sidebar
+      const userMessages = messages.filter(msg => msg.type === 'user')
+      if (userMessages.length === 1) {
+        // Refresh sidebar session list after a short delay
+        setTimeout(() => {
+          // This will trigger a re-render of ChatSidebar with updated session list
+          window.location.reload()
+        }, 1000)
+      }
 
     } catch (error) {
       let errorTitle = "Connection Error"
@@ -361,6 +405,7 @@ export default function ChatPage() {
     setCurrentSession(null)
     setMessages([])
     setConversationId(null)
+    setSidebarCollapsed(false)
   }
 
   const handleBackToSessions = () => {
@@ -444,8 +489,8 @@ export default function ChatPage() {
     return (
       <div className="flex h-screen bg-gray-50 dark:bg-gray-900 overflow-hidden">
         <div className="flex-1 flex flex-col min-w-0 w-full h-full">
-          <ChatHeader 
-            sessionId={null} 
+          <ChatHeader
+            sessionId={null}
             chatMode={currentBot.name}
           />
           <div className="flex-1 overflow-y-auto min-h-0">
@@ -479,11 +524,132 @@ export default function ChatPage() {
 
   // Chat view
   return (
-    <div className="flex h-screen bg-gray-50 dark:bg-gray-900 overflow-hidden">
-      <div className="flex-1 flex flex-col min-w-0 min-h-0 w-full h-full">
+    <div
+      key={`chat-view-${conversationId || 'no-session'}`} // Force re-mount when session changes
+      className={`flex h-screen bg-gray-50 dark:bg-gray-900 overflow-hidden ${
+        currentBot && (currentBot.language === 'fa' || currentBot.language === 'persian') ? 'flex-row-reverse' : ''
+      }`}
+    >
+      {/* Sidebar */}
+      {currentBot && !sidebarCollapsed && (
+        <ChatSidebar
+          key={`sidebar-${currentBot.id}-${currentBot.language}`} // Force re-mount when bot/language changes
+          botId={currentBot.id}
+          currentSessionId={conversationId || undefined}
+          onSelectSession={handleSelectSession}
+          onNewChat={() => startNewSession(currentBot)}
+          onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
+          isCollapsed={false}
+          language={currentBot.language}
+          onClearAllSessions={async () => {
+            if (!currentBot || !currentBot.id) {
+              toast({
+                title: "Error",
+                description: "No bot selected",
+                variant: "destructive",
+              })
+              return
+            }
+
+            if (!confirm("Are you sure you want to delete ALL chat sessions for this bot? This action cannot be undone!")) {
+              return
+            }
+
+            try {
+              const response = await fetch(`${apiUrls.deleteAllSessions}?confirm=true&bot_id=${currentBot.id}`, {
+                method: "DELETE",
+              })
+
+              if (response.ok) {
+                const data = await response.json()
+                toast({
+                  title: "Success",
+                  description: `Deleted ${data.deleted_sessions || 'all'} chat sessions successfully`,
+                })
+
+                // Clear current session data and create new session
+                setConversationId(null)
+                setCurrentSession(null)
+                setMessages([])
+
+                // Create new session automatically after clearing
+                try {
+                  const createResponse = await fetch(apiUrls.chatBotSessions(currentBot.id), {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({})
+                  })
+
+                  if (createResponse.ok) {
+                    const newSessionData = await createResponse.json()
+                    setConversationId(newSessionData.conversation_id)
+                    setCurrentSession(newSessionData.session)
+
+                    toast({
+                      title: "Sessions Cleared & New Session Created",
+                      description: "All old sessions deleted. New conversation ready!",
+                    })
+                  } else {
+                    throw new Error("Failed to create new session")
+                  }
+                } catch (createError) {
+                  toast({
+                    title: "Sessions Cleared",
+                    description: "All sessions deleted. Click 'New Chat' to start fresh.",
+                  })
+                }
+
+              } else {
+                const errorData = await response.json().catch(() => ({}))
+                throw new Error(errorData.detail || "Failed to delete sessions")
+              }
+            } catch (error: any) {
+              toast({
+                title: "Error",
+                description: error.message || "Failed to delete chat sessions",
+                variant: "destructive",
+              })
+            }
+          }}
+        />
+      )}
+
+      {/* Chat messages area */}
+      <div className="flex-1 flex flex-col min-w-0 min-h-0 w-full h-full relative">
+        {/* Collapsed Sidebar Button - inside chat area */}
+        {currentBot && sidebarCollapsed && viewMode === 'chat' && (
+          <div className={`absolute top-1/2 transform -translate-y-1/2 z-10 ${
+            currentBot.language === 'fa' || currentBot.language === 'persian' ? 'right-2' : 'left-2'
+          }`}>
+            <button
+              onClick={() => setSidebarCollapsed(false)}
+              className="bg-blue-600 hover:bg-blue-700 text-white rounded-full p-2 shadow-lg hover:shadow-xl transition-all duration-200 border border-blue-300"
+              title="Open sidebar"
+              style={{
+                width: '40px',
+                height: '40px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}
+            >
+              {currentBot.language === 'fa' || currentBot.language === 'persian' ?
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg> :
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+              }
+            </button>
+          </div>
+        )}
+
         <ChatHeader
           sessionId={conversationId}
-          chatMode={currentBot 
+          chatMode={currentBot
             ? `${currentBot.name}${currentBot.snapshot_name ? ` - ${currentBot.snapshot_name}` : ''}`
             : undefined}
         />
