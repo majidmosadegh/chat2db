@@ -71,6 +71,12 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# Debug and test files
+check_*.py
+debug_*.py
+test_*.py
+test_rtl.py
+
 # Local env files
 .env*.local
 
