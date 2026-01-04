@@ -1,0 +1,161 @@
+# Cursor AI Development Rules for SQL PT Project
+
+## 🎯 Project Context
+This is a Next.js 14 TypeScript project with React, Tailwind CSS, and Radix UI components.
+
+## 📋 Mandatory Rules
+
+### 1. UI/UX Patterns (MANDATORY)
+**ALWAYS follow the patterns defined in `frontend/docs/UI_UX_PATTERNS.md`**
+
+- ✅ Use `<form>` with `onSubmit` for all forms (Enter key support)
+- ✅ Use `ConfirmationDialog` for delete confirmations (NEVER use `confirm()`)
+- ✅ Use `PageLoader` for page-level loading states
+- ✅ Use `Loader2` with `animate-spin` for button-level loading
+- ✅ Implement field-level validation with error states
+- ✅ Clear validation errors when user types
+- ✅ Add `aria-label` and `title` to all icon-only buttons
+- ✅ Use `Label` component with `htmlFor` for form labels
+
+### 2. Component Structure (MANDATORY)
+**Follow the structure in `frontend/docs/COMPONENT_ARCHITECTURE.md`**
+
+```typescript
+// 1. Imports (grouped)
+// 2. Type definitions
+// 3. Constants
+// 4. Main component
+// 5. Helper functions
+```
+
+### 3. File Naming
+- Components: `kebab-case.tsx`
+- Pages: `page.tsx` (Next.js convention)
+- Utilities: `kebab-case.ts`
+- Hooks: `use-kebab-case.ts`
+
+### 4. Code Organization
+- State: Group by purpose (loading, data, UI, errors)
+- Handlers: Group by action type (submit, delete, edit, UI)
+- Effects: At top after state declarations
+
+### 5. Error Handling
+- Always use toast notifications for errors
+- User-friendly error messages
+- Field-level errors for validation
+- Never show raw error objects to users
+
+### 6. Loading States
+- Page-level: `<PageLoader message="..." />`
+- Button-level: `<Loader2 className="h-4 w-4 animate-spin" />`
+- Always show loading message
+- Disable buttons during loading
+
+### 7. Form Validation
+- Validation errors in state: `const [formErrors, setFormErrors] = useState<FormErrors>({})`
+- Validate function: `const validateForm = (): FormErrors => { ... }`
+- Show errors under fields: `{formErrors.field && <p className="text-sm text-destructive">...</p>}`
+- Highlight invalid fields: `className={formErrors.field ? "border-destructive" : ""}`
+- Clear errors on change
+
+### 8. Dialogs
+- Reset state on close
+- Clear errors on close
+- Use `ConfirmationDialog` for destructive actions
+- Escape key support (automatic with Radix UI)
+
+### 9. Accessibility
+- Icon-only buttons: `aria-label` + `title` REQUIRED
+- Form labels: `Label` with `htmlFor` REQUIRED
+- Loading states: `aria-label` or text REQUIRED
+- Error messages: `role="alert"` for important errors
+
+### 10. Keyboard Navigation
+- Enter key: Works with `<form onSubmit>`
+- Escape key: Works with Radix UI Dialog
+- Tab order: Logical and predictable
+
+## 🚫 NEVER Do
+
+- ❌ NEVER use `confirm()` - Use `ConfirmationDialog`
+- ❌ NEVER use `console.log` in production code
+- ❌ NEVER skip validation
+- ❌ NEVER skip error handling
+- ❌ NEVER skip loading states
+- ❌ NEVER skip accessibility attributes
+- ❌ NEVER use inline styles (use Tailwind)
+- ❌ NEVER create custom components that duplicate UI library functionality
+
+## ✅ ALWAYS Do
+
+- ✅ Read `UI_UX_PATTERNS.md` before starting any feature
+- ✅ Follow component structure template
+- ✅ Use TypeScript interfaces for all props
+- ✅ Use design system constants from `@/lib/design-system`
+- ✅ Use existing UI components from `@/components/ui`
+- ✅ Test keyboard navigation
+- ✅ Test with screen readers (accessibility)
+- ✅ Handle all error cases
+- ✅ Show loading states
+- ✅ Provide user feedback (toasts)
+
+## 📚 Required Reading Before Development
+
+1. `frontend/docs/UI_UX_PATTERNS.md` - Development patterns
+2. `frontend/docs/COMPONENT_ARCHITECTURE.md` - File structure
+3. `frontend/lib/design-system.ts` - Design constants
+
+## 🔍 Code Review Checklist
+
+Before submitting code, verify:
+- [ ] Follows UI/UX patterns
+- [ ] Follows component structure
+- [ ] All forms have validation
+- [ ] All errors are handled
+- [ ] Loading states implemented
+- [ ] Accessibility attributes present
+- [ ] Keyboard navigation works
+- [ ] No `console.log` statements
+- [ ] TypeScript types defined
+- [ ] Error messages are user-friendly
+
+## 🎨 Design System
+
+Use constants from `@/lib/design-system`:
+- Spacing: `spacing[4]` for consistent spacing
+- Typography: `typography.sm` for font sizes
+- Colors: `colors.status.error` for error states
+- Layout: `layout.container.lg` for container widths
+
+## 🔗 Component Imports
+
+Always import from correct paths:
+- UI Components: `@/components/ui/[component]`
+- Custom Components: `@/components/[feature]/[component]`
+- Utilities: `@/lib/[utility]`
+- Types: Define in same file or `@/types/[type]`
+
+## 💡 Development Workflow
+
+1. Read relevant documentation
+2. Check existing similar components
+3. Follow patterns exactly
+4. Test all interactions
+5. Verify accessibility
+6. Check keyboard navigation
+7. Review error handling
+8. Verify loading states
+
+## 🎯 AI Development Instructions
+
+When developing new features:
+1. **First**: Read `UI_UX_PATTERNS.md` completely
+2. **Second**: Check existing similar components for reference
+3. **Third**: Follow patterns exactly - do not customize or deviate
+4. **Fourth**: Use existing UI components - do not create new ones
+5. **Fifth**: Test all requirements from checklist
+
+**Remember**: Consistency is more important than creativity. Follow the established patterns.
+
+
+
