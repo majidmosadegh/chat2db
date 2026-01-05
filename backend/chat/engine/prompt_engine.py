@@ -860,16 +860,24 @@ QUESTION: {question}
 SCHEMA:
 {context}
 
-TASK: Identify relevant tables and columns for answering this question.
+TASK: Analyze the question carefully and identify which tables contain the information needed to answer it.
+
+STEP-BY-STEP ANALYSIS:
+1. What is the question asking for? (companies, products, prices, etc.)
+2. Look at DATA DICTIONARY to see what information each table contains
+3. Match question requirements with table contents based on descriptions and sample data
+4. Select 1-2 most relevant tables that actually contain the requested information
 
 RULES:
-- Only select tables that exist in the schema
-- Analyze the query content and match it with table descriptions and column names
-- For price-related queries, prioritize tables with price-related columns
-- For energy/trading queries, prioritize tables with energy/trading-related columns
+- Only select tables that exist in the DATABASE SCHEMA section above
+- Read the DATA DICTIONARY section to understand what each table contains
+- For "company" or "producer" queries, look for tables with company/producer names (like ProducerName, CompanyName)
+- For product-related queries, look for tables with product names (like GoodsName, ProductName)
+- For energy queries, look for tables with energy-related data (coal, oil, etc.)
 - Prefer fewer tables over more tables (ideally 1-2 tables)
 - Include all columns that might be needed based on the query
-- Identify potential filter columns (dates, categories, names, etc.)
+- Use table descriptions from DATA DICTIONARY to understand table purpose
+- If DATA DICTIONARY shows sample data, use it to understand what the table contains
 
 OUTPUT: ONLY JSON, no explanations:
 {{
@@ -890,18 +898,27 @@ OUTPUT: ONLY JSON, no explanations:
 Schema:
 {context}
 
-⚠️ وظیفه بسیار مهم: جداول و ستون‌های مرتبط برای پاسخ به این سوال را شناسایی کنید.
+⚠️ وظیفه بسیار مهم: سوال را با دقت تحلیل کنید و جداولی که اطلاعات مورد نیاز برای پاسخ را دارند شناسایی کنید.
+
+تحلیل مرحله به مرحله:
+1. سوال چه چیزی می‌پرسد؟ (شرکت‌ها، محصولات، قیمت‌ها، و غیره)
+2. به بخش DATA DICTIONARY نگاه کنید تا ببینید هر جدول چه اطلاعاتی دارد
+3. الزامات سوال را با محتوای جداول بر اساس توضیحات و نمونه داده‌ها مطابقت دهید
+4. 1-2 جدول مرتبط‌ترین را انتخاب کنید که واقعاً اطلاعات درخواستی را دارند
 
 ⚠️ قوانین الزامی:
 - **الزامی**: فقط جداولی را انتخاب کنید که در بخش DATABASE SCHEMA بالا وجود دارند
 - **الزامی**: نام جدول باید دقیقاً همان باشد که در Schema آمده (با schema prefix اگر وجود دارد)
 - **ممنوع**: هرگز از نام‌های generic مثل Products، Orders استفاده نکنید مگر اینکه در Schema وجود داشته باشند
 - **الزامی**: قبل از انتخاب، بخش DATABASE SCHEMA را بخوانید و نام‌های دقیق جداول را پیدا کنید
+- **الزامی**: بخش DATA DICTIONARY را بخوانید تا متوجه شوید هر جدول چه اطلاعاتی دارد
+- برای سوالات "شرکت" یا "تولیدکننده"، جداولی با نام شرکت/تولیدکننده پیدا کنید (مانند ProducerName, CompanyName)
+- برای سوالات محصول، جداولی با نام محصول پیدا کنید (مانند GoodsName, ProductName)
+- برای سوالات انرژی، جداولی با داده‌های انرژی پیدا کنید (زغال سنگ، نفت، و غیره)
 - جداول کمتر را ترجیح دهید (1-2 جدول)
 - تمام ستون‌هایی که ممکن است نیاز باشد را شامل کنید
-- ستون‌های فیلتر بالقوه را شناسایی کنید (تاریخ، دسته‌بندی، نام محصول، و غیره)
-- برای سوالات قیمت، جداول با ستون‌های قیمت را اولویت دهید
-- برای سوالات انرژی/معاملات، جداول با ستون‌های مرتبط را اولویت دهید
+- از توضیحات جداول در DATA DICTIONARY برای فهمیدن目的 جدول استفاده کنید
+- اگر DATA DICTIONARY نمونه داده دارد، از آن برای فهم محتوای جدول استفاده کنید
 
 ⚠️ اگر سوال شبیه به سوالات موجود در بخش BUSINESS USE CASES است، از جداول استفاده شده در آن use case‌ها به عنوان راهنما استفاده کنید.
 
@@ -1254,9 +1271,11 @@ Schema:
                     try:
                         examples = json.loads(item.example_values) if isinstance(item.example_values, str) else item.example_values
                         if isinstance(examples, list) and examples:
-                            lines.append(f"    Example values: {', '.join(str(v) for v in examples[:3])}")
+                            # Show more examples for better understanding
+                            sample_values = [str(v) for v in examples[:5]]
+                            lines.append(f"    Sample data: {', '.join(sample_values)}")
                     except:
-                        lines.append(f"    Example values: {item.example_values}")
+                        lines.append(f"    Sample data: {item.example_values}")
                 if item.synonyms:
                     lines.append(f"    Synonyms: {item.synonyms}")
 
