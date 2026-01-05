@@ -128,15 +128,8 @@ class PromptEngine:
         import logging
         logging.info(f"DEBUG: build_sql_prompt called with language={language}, question='{question}'")
 
-        # Enhance reasoning with query-specific guidance
-        enhanced_reasoning = reasoning_output
-        if language == ChatLanguage.PERSIAN:
-            if any(keyword in question for keyword in ["قیمت", "price"]):
-                enhanced_reasoning += "\n\nGUIDANCE: This is a price-related query. Look for tables containing price information and product names."
-            elif any(keyword in question for keyword in ["تعداد", "count"]):
-                enhanced_reasoning += "\n\nGUIDANCE: This is a counting query. Consider using COUNT() or similar aggregation functions."
-            elif any(keyword in question for keyword in ["نمایش", "لیست", "show", "list"]):
-                enhanced_reasoning += "\n\nGUIDANCE: This is a listing query. Select appropriate columns to display the requested information."
+        # Note: We no longer use reasoning_output in SQL generation to prevent copying from examples
+        # The LLM should generate SQL directly from the question and schema
 
         # Select template based on database type
         db_type = context.database_type.lower()
@@ -165,7 +158,6 @@ class PromptEngine:
         # No hardcoded overrides - let the LLM decide based on the schema
 
         variables = {
-            "reasoning_output": enhanced_reasoning,
             "context": context_str,
             "question": question
         }
@@ -1701,27 +1693,22 @@ OUTPUT: Return ONLY the SQL query, no explanations:"""
         """English SQL generation prompt template for SQL Server"""
         return """You are a Text-to-SQL expert. Generate exactly ONE SELECT SQL query for SQL Server.
 
-REASONING ANALYSIS:
-{reasoning_output}
-
-CONTEXT:
-{context}
-
 QUESTION: {question}
+
+SCHEMA INFORMATION:
+{context}
 
 CRITICAL RULES:
 - Generate ONLY SELECT queries
-- Use explicit JOINs, never implicit
-- Use only tables/columns from the schema
-- Analyze query content and select appropriate tables dynamically
-- For price-related queries, use tables with price columns
-- For energy-related queries, use tables with energy columns
-- Include TOP 50 to prevent large results
-- Use proper SQL Server syntax (T-SQL) and aliases
-- Handle NULL values appropriately
-- Use square brackets [ ] for identifiers if needed
+- Use ONLY tables and columns from DATABASE SCHEMA section above
+- NEVER invent table or column names - use exact names from schema
+- For price queries: find tables with price-related columns (like Price, Cost, Amount)
+- For product queries: find tables with product names (like GoodsName, ProductName)
+- Use TOP 50 to limit results
+- Use proper SQL Server syntax: N'...' for Unicode strings, [brackets] for identifiers
+- Include WHERE clause if filtering specific items
 
-OUTPUT: Return ONLY the SQL query, no explanations:"""
+OUTPUT: Return ONLY the SQL query, no explanations or markdown."""
 
     def _get_sql_template_en(self) -> str:
         """Legacy English SQL generation prompt template (defaults to PostgreSQL)"""
@@ -1731,26 +1718,22 @@ OUTPUT: Return ONLY the SQL query, no explanations:"""
         """Persian SQL generation prompt template"""
         return """شما یک متخصص Text-to-SQL هستید. دقیقاً یک پرس‌وجوی SELECT SQL تولید کنید.
 
-تحلیل استدلال:
-{reasoning_output}
-
-زمینه:
-{context}
-
 پرسش: {question}
+
+اطلاعات Schema:
+{context}
 
 قوانین بسیار مهم:
 - فقط پرس‌وجوی SELECT تولید کنید
-- از JOINهای صریح استفاده کنید، نه ضمنی
-- فقط از جداول/ستون‌های موجود در schema استفاده کنید
-- بر اساس محتوای پرسش، مناسب‌ترین جداول را انتخاب کنید
-- برای پرسش‌های قیمت، جداول با ستون‌های قیمت را اولویت دهید
-- برای پرسش‌های انرژی، جداول با ستون‌های انرژی را اولویت دهید
-- TOP 50 را برای جلوگیری از نتایج بزرگ اضافه کنید
-- از نحو SQL مناسب و نام‌های مستعار استفاده کنید
-- با مقادیر NULL به طور مناسب برخورد کنید
+- فقط از جداول و ستون‌هایی که در بخش DATABASE SCHEMA بالا آمده استفاده کنید
+- هرگز نام جدول یا ستون جدیدی نسازید - از نام‌های دقیق موجود استفاده کنید
+- برای پرسش‌های قیمت: جداولی با ستون‌های قیمت پیدا کنید (مانند Price, Cost, Amount)
+- برای پرسش‌های محصول: جداولی با نام محصول پیدا کنید (مانند GoodsName, ProductName)
+- از TOP 50 برای محدود کردن نتایج استفاده کنید
+- از نحو SQL Server مناسب استفاده کنید: N'...' برای رشته‌های یونیکد، [brackets] برای شناسه‌ها
+- اگر محصول خاصی پرسیده شده، بند WHERE اضافه کنید
 
-خروجی: فقط پرس‌وجوی SQL را برگردانید، بدون توضیح:"""
+خروجی: فقط پرس‌وجوی SQL را برگردانید، بدون توضیح یا markdown."""
 
     def _get_validation_template_en(self) -> str:
         """English SQL validation prompt template"""
