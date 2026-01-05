@@ -863,17 +863,16 @@ SCHEMA:
 TASK: Analyze the question carefully and identify which tables contain the information needed to answer it.
 
 STEP-BY-STEP ANALYSIS:
-1. What is the question asking for? (companies, products, prices, etc.)
-2. Look at DATA DICTIONARY to see what information each table contains
-3. Match question requirements with table contents based on descriptions and sample data
-4. Select 1-2 most relevant tables that actually contain the requested information
+1. What specific information is the question asking for?
+2. Look at DATA DICTIONARY to understand what each table contains
+3. Match question requirements with table contents based on column names, descriptions, and sample data
+4. Select the most relevant tables that contain the requested information
 
 RULES:
 - Only select tables that exist in the DATABASE SCHEMA section above
 - Read the DATA DICTIONARY section to understand what each table contains
-- For "company" or "producer" queries, look for tables with company/producer names (like ProducerName, CompanyName)
-- For product-related queries, look for tables with product names (like GoodsName, ProductName)
-- For energy queries, look for tables with energy-related data (coal, oil, etc.)
+- Analyze the question to understand what type of data is being requested
+- Look for tables that contain the type of information mentioned in the question
 - Prefer fewer tables over more tables (ideally 1-2 tables)
 - Include all columns that might be needed based on the query
 - Use table descriptions from DATA DICTIONARY to understand table purpose
@@ -901,10 +900,10 @@ Schema:
 ⚠️ وظیفه بسیار مهم: سوال را با دقت تحلیل کنید و جداولی که اطلاعات مورد نیاز برای پاسخ را دارند شناسایی کنید.
 
 تحلیل مرحله به مرحله:
-1. سوال چه چیزی می‌پرسد؟ (شرکت‌ها، محصولات، قیمت‌ها، و غیره)
-2. به بخش DATA DICTIONARY نگاه کنید تا ببینید هر جدول چه اطلاعاتی دارد
-3. الزامات سوال را با محتوای جداول بر اساس توضیحات و نمونه داده‌ها مطابقت دهید
-4. 1-2 جدول مرتبط‌ترین را انتخاب کنید که واقعاً اطلاعات درخواستی را دارند
+1. سوال چه اطلاعات خاصی را درخواست می‌کند؟
+2. به بخش DATA DICTIONARY نگاه کنید تا متوجه شوید هر جدول چه اطلاعاتی دارد
+3. الزامات سوال را با محتوای جداول بر اساس نام ستون‌ها، توضیحات و نمونه داده‌ها مطابقت دهید
+4. جداول مرتبط‌ترین را انتخاب کنید که اطلاعات درخواستی را دارند
 
 ⚠️ قوانین الزامی:
 - **الزامی**: فقط جداولی را انتخاب کنید که در بخش DATABASE SCHEMA بالا وجود دارند
@@ -912,9 +911,8 @@ Schema:
 - **ممنوع**: هرگز از نام‌های generic مثل Products، Orders استفاده نکنید مگر اینکه در Schema وجود داشته باشند
 - **الزامی**: قبل از انتخاب، بخش DATABASE SCHEMA را بخوانید و نام‌های دقیق جداول را پیدا کنید
 - **الزامی**: بخش DATA DICTIONARY را بخوانید تا متوجه شوید هر جدول چه اطلاعاتی دارد
-- برای سوالات "شرکت" یا "تولیدکننده"، جداولی با نام شرکت/تولیدکننده پیدا کنید (مانند ProducerName, CompanyName)
-- برای سوالات محصول، جداولی با نام محصول پیدا کنید (مانند GoodsName, ProductName)
-- برای سوالات انرژی، جداولی با داده‌های انرژی پیدا کنید (زغال سنگ، نفت، و غیره)
+- سوال را تحلیل کنید تا متوجه شوید چه نوع داده‌ای درخواست شده
+- به دنبال جداولی باشید که نوع اطلاعاتی که در سوال ذکر شده را داشته باشند
 - جداول کمتر را ترجیح دهید (1-2 جدول)
 - تمام ستون‌هایی که ممکن است نیاز باشد را شامل کنید
 - از توضیحات جداول در DATA DICTIONARY برای فهمیدن目的 جدول استفاده کنید
@@ -1721,8 +1719,8 @@ CRITICAL RULES:
 - Generate ONLY SELECT queries
 - Use ONLY tables and columns from DATABASE SCHEMA section above
 - NEVER invent table or column names - use exact names from schema
-- For price queries: find tables with price-related columns (like Price, Cost, Amount)
-- For product queries: find tables with product names (like GoodsName, ProductName)
+- Analyze the question to understand what data is being requested
+- Find tables that contain the type of information mentioned in the question
 - Use TOP 50 to limit results
 - Use proper SQL Server syntax: N'...' for Unicode strings, [brackets] for identifiers
 - Include WHERE clause if filtering specific items
@@ -1746,11 +1744,11 @@ OUTPUT: Return ONLY the SQL query, no explanations or markdown."""
 - فقط پرس‌وجوی SELECT تولید کنید
 - فقط از جداول و ستون‌هایی که در بخش DATABASE SCHEMA بالا آمده استفاده کنید
 - هرگز نام جدول یا ستون جدیدی نسازید - از نام‌های دقیق موجود استفاده کنید
-- برای پرسش‌های قیمت: جداولی با ستون‌های قیمت پیدا کنید (مانند Price, Cost, Amount)
-- برای پرسش‌های محصول: جداولی با نام محصول پیدا کنید (مانند GoodsName, ProductName)
+- سوال را تحلیل کنید تا متوجه شوید چه نوع داده‌ای درخواست شده
+- جداولی را پیدا کنید که نوع اطلاعاتی که در سوال ذکر شده را داشته باشند
 - از TOP 50 برای محدود کردن نتایج استفاده کنید
 - از نحو SQL Server مناسب استفاده کنید: N'...' برای رشته‌های یونیکد، [brackets] برای شناسه‌ها
-- اگر محصول خاصی پرسیده شده، بند WHERE اضافه کنید
+- اگر مورد خاصی پرسیده شده، بند WHERE اضافه کنید
 
 خروجی: فقط پرس‌وجوی SQL را برگردانید، بدون توضیح یا markdown."""
 
