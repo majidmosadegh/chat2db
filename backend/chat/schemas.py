@@ -122,6 +122,9 @@ class ChatResponse(BaseModel):
     # For conversational responses (when intent is CONVERSATIONAL)
     conversational_response: Optional[str] = None
 
+    # Formatted content for display (includes RTL/LTR formatting)
+    formatted_content: Optional[str] = None
+
 
 class SchemaInfo(BaseModel):
     """Schema information for a table column"""

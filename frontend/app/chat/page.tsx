@@ -34,6 +34,7 @@ interface ChatResponse {
   execution_time_ms: number
   conversation_id?: string
   conversational_response?: string
+  formatted_content?: string
 }
 
 type ViewMode = 'bot-list' | 'bot-sessions' | 'settings' | 'chat'
@@ -228,7 +229,10 @@ export default function ChatPage() {
 
       let content = ""
       if (data.success) {
-        if (data.conversational_response && data.execution_status === 'completed') {
+        // Use formatted_content if available, otherwise build content from individual parts
+        if (data.formatted_content) {
+          content = data.formatted_content
+        } else if (data.conversational_response && data.execution_status === 'completed') {
           content = data.conversational_response
         } else if (data.generated_sql) {
           content = `**Generated SQL:**\n\`\`\`sql\n${data.generated_sql}\n\`\`\`\n\n`
@@ -256,8 +260,9 @@ export default function ChatPage() {
           row_count: data.row_count,
           sql_validation_status: data.sql_validation_status,
           execution_time_ms: data.execution_time_ms,
-          intent_type: data.conversational_response ? 'conversational' : 'sql_query',
+          intent_type: data.formatted_content ? 'formatted' : (data.conversational_response ? 'conversational' : 'sql_query'),
           conversational_response: data.conversational_response,
+          formatted_content: data.formatted_content,
           results: data.rows && Array.isArray(data.rows) ? data.rows : [],
           debug_generated_sql: data.generated_sql,
           debug_sql_length: data.generated_sql?.length || 0

@@ -36,6 +36,7 @@ export interface ChatMessage {
     sql_validation_status?: string
     execution_time_ms?: number
     conversational_response?: string
+    formatted_content?: string
     // Debug fields
     debug_generated_sql?: string
     debug_sql_length?: number
@@ -49,12 +50,14 @@ interface ChatMessageProps {
 }
 
 export function ChatMessage({ message, onFeedback, language }: ChatMessageProps) {
-  // RTL only for Persian language AND conversational content (not SQL queries/tables)
+  // Check if content is HTML (starts with <div) - if so, render as HTML
+  const isHtmlContent = message.content?.startsWith('<div')
+  const hasFormattedContent = message.metadata?.formatted_content
   const isPersianLanguage = language === 'fa' || language === 'persian'
   const isConversational = message.metadata?.intent_type === 'conversational' ||
                           message.metadata?.conversational_response ||
                           (!message.metadata?.results && !message.metadata?.sql_query)
-  const isRTL = isPersianLanguage && isConversational
+  const isRTL = !hasFormattedContent && !isHtmlContent && isPersianLanguage && isConversational
   const isUserMessage = message.type === 'user'
   const messageDirection = isRTL ? 'rtl' : 'ltr'
   const decodePersianText = (text: string) => {
@@ -299,16 +302,24 @@ export function ChatMessage({ message, onFeedback, language }: ChatMessageProps)
             )}
 
             {/* Message Content */}
-            <div className={`prose prose-sm max-w-none dark:prose-invert break-words overflow-wrap-anywhere ${isRTL ? 'rtl' : 'ltr'}`}>
-              <div className="overflow-x-auto w-full">
-                <div className={`min-w-0 ${isRTL ? 'text-right' : 'text-left'}`}>
-                  {formatMessageContent(message.content)}
+            {isHtmlContent ? (
+              // Render HTML content directly with proper container styling
+              <div className={`break-words overflow-wrap-anywhere ${isRTL ? 'rtl' : 'ltr'}`}>
+                <div dangerouslySetInnerHTML={{ __html: message.content }} />
+              </div>
+            ) : (
+              // Fallback to old formatting for legacy messages
+              <div className={`prose prose-sm max-w-none dark:prose-invert break-words overflow-wrap-anywhere ${isRTL ? 'rtl' : 'ltr'}`}>
+                <div className="overflow-x-auto w-full">
+                  <div className={`min-w-0 ${isRTL ? 'text-right' : 'text-left'}`}>
+                    {formatMessageContent(message.content)}
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
 
-            {/* Execution Results Display */}
-            {message.metadata?.results && Array.isArray(message.metadata.results) && message.metadata.results.length > 0 && (
+            {/* Execution Results Display - Only show if no formatted_content (legacy support) */}
+            {message.metadata?.results && Array.isArray(message.metadata.results) && message.metadata.results.length > 0 && !hasFormattedContent && (
               <div className="mt-3 sm:mt-4">
                 <div className={`bg-gray-50 dark:bg-gray-900 rounded p-3 sm:p-4 ${isRTL ? 'rtl' : 'ltr'}`}>
                   <h4 className={`text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 ${isRTL ? 'text-right' : 'text-left'}`}>
@@ -344,9 +355,9 @@ export function ChatMessage({ message, onFeedback, language }: ChatMessageProps)
               </div>
             )}
 
-            {/* SQL Query Display - Only show if not already in content */}
+            {/* SQL Query Display - Only show if not already in content and no formatted_content */}
             {message.metadata?.sql_query && message.metadata.sql_query.trim() &&
-             !message.content.includes('Generated SQL') && (
+             !message.content.includes('Generated SQL') && !hasFormattedContent && (
               <div className="mt-3">
                 <div className={`bg-gray-50 dark:bg-gray-900 rounded p-3 ${isRTL ? 'rtl' : 'ltr'}`}>
                   <div className={`text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 ${isRTL ? 'text-right' : 'text-left'}`}>

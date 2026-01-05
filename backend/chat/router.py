@@ -1,23 +1,27 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any, TYPE_CHECKING
 from loguru import logger
 from pydantic import BaseModel
 from datetime import datetime
 import uuid
 import json
 
-from .engine.chat_engine import ChatEngine
+if TYPE_CHECKING:
+    from .engine.chat_engine import ChatEngine
+
+# Import ChatEngine inside functions to avoid circular import
+# from .engine.chat_engine import ChatEngine
 from config.chatbot_logging import chatbot_logger, create_request_context
 from .schemas import ChatRequest, ChatResponse, ChatLanguage
 from api.database import get_db_session
 from api.db_models import ChatBot, ChatSession, ChatMessage, SchemaSnapshot, LLMModel
 
 # Global ChatEngine cache for optimization
-_chat_engine_cache: Dict[int, ChatEngine] = {}
+_chat_engine_cache: Dict[int, "ChatEngine"] = {}
 
-async def get_or_create_chat_engine(bot_id: int, session: AsyncSession) -> ChatEngine:
+async def get_or_create_chat_engine(bot_id: int, session: AsyncSession) -> "ChatEngine":
     """
     Get or create a pre-initialized ChatEngine for a bot.
     This provides significant performance improvements by reusing initialized engines.
@@ -43,6 +47,9 @@ async def get_or_create_chat_engine(bot_id: int, session: AsyncSession) -> ChatE
     # Create database connector
     from db.dependencies import get_database_connector
     connector = await get_database_connector(bot.snapshot_id, session)
+
+    # Import ChatEngine here to avoid circular import
+    from .engine.chat_engine import ChatEngine
 
     # Create and initialize ChatEngine
     engine = ChatEngine(session, connector)
@@ -113,6 +120,7 @@ class ChatMessageResponse(BaseModel):
     execution_status: Optional[str] = None
     row_count: Optional[int] = None
     execution_time_ms: Optional[int] = None
+    rows: Optional[List[Dict[str, Any]]] = None  # Table data
     metadata: Optional[dict] = None
     created_at: datetime
 
@@ -545,6 +553,7 @@ async def get_chat_session(
                 execution_status=msg.execution_status,
                 row_count=msg.row_count,
                 execution_time_ms=msg.execution_time_ms,
+                rows=metadata.get("rows") if metadata else None,  # Extract rows from metadata
                 metadata=metadata,
                 created_at=msg.created_at
             ))
@@ -785,17 +794,16 @@ async def execute_chat(
             if not response.conversation_id:
                 response.conversation_id = conversation_id
 
-            # Save assistant message
-            assistant_content = response.conversational_response or (
-                f"Generated SQL:\n```sql\n{response.generated_sql}\n```" if response.generated_sql else "No SQL generated"
-            )
+            # Use the formatted content from the response (built in ChatEngine)
+            assistant_content = response.formatted_content or "No response generated"
 
             metadata_dict = {
                 "success": response.success,
                 "execution_status": response.execution_status,
                 "sql_validation_status": response.sql_validation_status,
                 "context_hash": response.context_hash,
-                "conversational_response": response.conversational_response
+                "conversational_response": response.conversational_response,
+                "rows": response.rows  # Store the actual table data
             }
 
             assistant_message = ChatMessage(
