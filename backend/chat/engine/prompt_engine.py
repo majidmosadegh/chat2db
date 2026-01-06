@@ -106,7 +106,8 @@ class PromptEngine:
         if not template:
             raise ValueError(f"No reasoning template found for language {language}")
 
-        context_str = self._build_context_string(context)
+        # Build context with prioritized use cases
+        context_str = self._build_prioritized_context_string(context, question, language)
 
         variables = {
             "context": context_str,
@@ -877,6 +878,7 @@ RULES:
 - Include all columns that might be needed based on the query
 - Use table descriptions from DATA DICTIONARY to understand table purpose
 - If DATA DICTIONARY shows sample data, use it to understand what the table contains
+- Check RELEVANT BUSINESS USE CASES section for ⭐ HIGH PRIORITY use cases that match your question
 
 OUTPUT: ONLY JSON, no explanations:
 {{
@@ -917,8 +919,9 @@ Schema:
 - تمام ستون‌هایی که ممکن است نیاز باشد را شامل کنید
 - از توضیحات جداول در DATA DICTIONARY برای فهمیدن目的 جدول استفاده کنید
 - اگر DATA DICTIONARY نمونه داده دارد، از آن برای فهم محتوای جدول استفاده کنید
+- بخش RELEVANT BUSINESS USE CASES را چک کنید و از use caseهای ⭐ HIGH PRIORITY که با سوال شما مطابقت دارند استفاده کنید
 
-⚠️ اگر سوال شبیه به سوالات موجود در بخش BUSINESS USE CASES است، از جداول استفاده شده در آن use case‌ها به عنوان راهنما استفاده کنید.
+⚠️ اگر سوال شبیه به سوالات موجود در بخش RELEVANT BUSINESS USE CASES است، از جداول و الگوهای استفاده شده در آن use caseهای ⭐ HIGH PRIORITY به عنوان راهنما استفاده کنید.
 
 خروجی: فقط JSON، بدون توضیح:
 {{
@@ -1202,6 +1205,29 @@ Schema:
         # Use cases
         if context.use_cases:
             parts.append(self._build_use_cases_section(context.use_cases))
+
+        return "\n".join(parts)
+
+    def _build_prioritized_context_string(self, context: ChatContext, question: str, language: ChatLanguage) -> str:
+        """Build context string with prioritized use cases based on question similarity"""
+        parts = []
+
+        # Schema information (always first)
+        parts.append(self._build_schema_section(context.schema_info))
+
+        # Data dictionary
+        if context.data_dictionary:
+            parts.append(self._build_data_dictionary_section(context.data_dictionary))
+
+        # Relationships
+        if context.relationships:
+            parts.append(self._build_relationships_section(context.relationships))
+
+        # Prioritized use cases (relevant ones first)
+        if context.use_cases:
+            prioritized_use_cases = self._prioritize_use_cases(context.use_cases, question, language)
+            if prioritized_use_cases:
+                parts.append(self._build_prioritized_use_cases_section(prioritized_use_cases))
 
         return "\n".join(parts)
 
@@ -1597,6 +1623,88 @@ Schema:
                     row_str = row_str[:200] + "..."
                 lines.append(f"  Row {idx}: {row_str}")
         
+        return "\n".join(lines)
+
+    def _prioritize_use_cases(self, use_cases: List[UseCaseInfo], question: str, language: ChatLanguage) -> List[UseCaseInfo]:
+        """Prioritize use cases based on similarity to the question"""
+        if not use_cases or not question:
+            return use_cases
+
+        # Simple keyword matching for prioritization
+        question_lower = question.lower().strip()
+        prioritized = []
+        others = []
+
+        for use_case in use_cases:
+            # Check if use case has relevant keywords in business_goal or example questions
+            relevant_keywords = []
+
+            # Persian keywords
+            if language == ChatLanguage.PERSIAN:
+                relevant_keywords = ["قیمت", "قیر", "شرکت", "تولید", "فروش", "خرید", "تعداد", "لیست", "نمایش"]
+            else:
+                relevant_keywords = ["price", "company", "product", "sales", "count", "list", "show"]
+
+            business_goal_lower = (use_case.business_goal or "").lower()
+            example_questions = " ".join(use_case.example_questions or []).lower()
+
+            # Check if question contains keywords that match the use case
+            question_has_keywords = any(keyword in question_lower for keyword in relevant_keywords)
+            use_case_has_keywords = any(keyword in business_goal_lower or keyword in example_questions for keyword in relevant_keywords)
+
+            # Also check for exact word matches
+            question_words = set(question_lower.split())
+            business_words = set(business_goal_lower.split())
+            example_words = set(example_questions.split())
+
+            word_overlap = len(question_words.intersection(business_words.union(example_words)))
+
+            # Prioritize if there's keyword match or significant word overlap
+            if question_has_keywords and use_case_has_keywords or word_overlap >= 2:
+                prioritized.append(use_case)
+            else:
+                others.append(use_case)
+
+        # Return prioritized use cases first, then others (max 3 prioritized, 2 others)
+        return prioritized[:3] + others[:2]
+
+    def _build_prioritized_use_cases_section(self, use_cases: List[UseCaseInfo]) -> str:
+        """Build use cases section with prioritization indicators"""
+        if not use_cases:
+            return ""
+
+        lines = ["RELEVANT BUSINESS USE CASES (prioritized by similarity to your question):"]
+        lines.append("=" * 60)
+
+        for idx, use_case in enumerate(use_cases, 1):
+            priority_marker = "⭐ HIGH PRIORITY" if idx <= 3 else "📋 REFERENCE"
+            lines.append(f"\n[{idx}] {priority_marker} - Use Case: {use_case.name}")
+            lines.append(f"Business Goal: {use_case.business_goal}")
+            if use_case.output_style:
+                lines.append(f"Output Style: {use_case.output_style}")
+
+            # Add example questions and queries
+            if use_case.example_questions and use_case.example_queries:
+                lines.append("\nExample Q&A:")
+                example_pairs = list(zip(use_case.example_questions, use_case.example_queries))
+                for q_idx, (question, query) in enumerate(example_pairs[:3], 1):  # Max 3 examples
+                    lines.append(f"\n  Example {q_idx}:")
+                    lines.append(f"    Q: {question}")
+                    if query:
+                        query_preview = query[:150] + "..." if len(query) > 150 else query
+                        lines.append(f"    SQL: {query_preview}")
+            elif use_case.example_questions:
+                lines.append("\nExample Questions:")
+                for q in use_case.example_questions[:3]:  # Max 3
+                    lines.append(f"  - {q}")
+
+            if idx < len(use_cases):
+                lines.append("-" * 60)
+
+        lines.append("\n" + "=" * 60)
+        lines.append("💡 TIP: Use these similar use cases as templates for your query pattern!")
+        lines.append("=" * 60)
+
         return "\n".join(lines)
 
     def _format_conversation_history(self, history: Optional[List[Dict[str, str]]]) -> str:
