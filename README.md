@@ -50,13 +50,29 @@ The existing repository includes a Python backend, a Next.js frontend, and Windo
 - Git.
 - An LLM provider and API credentials if you choose a hosted model; local providers may require separate setup.
 
+### Configuration
+
+1. Copy `.env.example` to an untracked `.env` (or export the variables in your shell).
+2. Generate `CHAT2DB_ENCRYPTION_KEY`:
+
+```bash
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+3. Copy `frontend/.env.example` to `frontend/.env.local` if you need a non-default backend URL.
+4. Read [docs/ENCRYPTION_KEY.md](docs/ENCRYPTION_KEY.md) before rotating keys on an existing installation.
+
 ### Manual development setup
 
 Backend:
 
 ```bash
 cd backend
+python -m venv .venv
+# Windows: .venv\Scripts\activate
+# macOS/Linux: source .venv/bin/activate
 pip install -r requirements.txt
+# ensure CHAT2DB_ENCRYPTION_KEY is set
 python main.py
 ```
 
@@ -68,23 +84,32 @@ npm install
 npm run dev
 ```
 
-The existing documentation references a backend at `http://localhost:8000` and frontend at `http://localhost:3000`. Treat these as expected local defaults, not a verified end-to-end setup guarantee. Review the configuration and never put real secrets in committed files.
+Expected local defaults are backend `http://localhost:8000` and frontend `http://localhost:3000`. Validate against the current code. Never put real secrets in committed files.
+
+### Tests
+
+```bash
+cd backend
+pip install -r requirements.txt pytest
+# ensure CHAT2DB_ENCRYPTION_KEY is set
+pytest tests/security -q
+```
+
+```bash
+cd frontend
+npm ci
+npm run build
+```
+
+CI runs security tests, Gitleaks, and the frontend build on pull requests.
 
 ## Security warning
 
 **Do not connect this project to a production database or sensitive data until the code has been reviewed.** AI-generated SQL is untrusted input. Use least-privilege database credentials, prefer read-only access for exploration, and verify queries before execution.
 
-The repository is still private while release hardening is in progress. The current working tree has been updated to require configured encryption and to fail closed on decryption errors, but the Git history has not yet been rewritten or fully scanned. Do not reuse or rely on any credentials or encryption keys previously present in the repository.
+Treat any encryption key or credential that was previously present in Git history as compromised. Generate a new Fernet key for every deployment and re-enter stored credentials after rotation. See [docs/ENCRYPTION_KEY.md](docs/ENCRYPTION_KEY.md).
 
-The backend now requires `CHAT2DB_ENCRYPTION_KEY` to be supplied by the environment. Generate a new Fernet key for a fresh installation with:
-
-```bash
-python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-```
-
-Store it outside source control (for example, in your deployment secret manager or an untracked local environment file). Do not commit the generated key. Existing installations that have encrypted database credentials need a migration or credential re-entry plan before changing their encryption key. See [OPEN_SOURCE_RELEASE_CHECKLIST.md](OPEN_SOURCE_RELEASE_CHECKLIST.md).
-
-Please report security vulnerabilities privately as described in [SECURITY.md](SECURITY.md), rather than posting exploitable details in a public issue.
+Please report security vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
 
 ## Contributing
 
@@ -99,7 +124,7 @@ The original creator has limited time to lead development right now. People inte
 
 ## License
 
-The current application branch includes an [MIT License](LICENSE). The repository remains private until historical secret cleanup and release verification are complete; confirm the public default branch and license before announcing the release.
+Released under the [MIT License](LICENSE). Copyright (c) 2026 Majid Mosadeq.
 
 ## Project links
 

@@ -52,4 +52,4 @@ The original creator currently has limited time to lead active development. Cont
 
 ## License status
 
-Before the MIT license is present on the public default branch and the release is complete, do not assume that the code is licensed for reuse. Check the repository's LICENSE file.
+This project is released under the MIT License. See LICENSE.

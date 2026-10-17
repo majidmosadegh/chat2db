@@ -4,6 +4,7 @@ import aiomysql
 import pyodbc
 from typing import List, Dict, Any, Optional
 from loguru import logger
+from db.security import validate_read_only_sql, SQLSecurityError
 
 class DirectDatabaseConnector:
     """
@@ -65,7 +66,14 @@ class DirectDatabaseConnector:
                 self.connection.close()
 
     async def execute_query(self, query: str, limit: Optional[int] = None) -> List[Dict[str, Any]]:
-        """Execute SQL query and return results as list of dictionaries"""
+        """Execute a read-only SQL query and return results as list of dictionaries."""
+        try:
+            validate_read_only_sql(query)
+        except SQLSecurityError as exc:
+            logger.warning(
+                f"Rejected unsafe SQL in DirectDatabaseConnector: {exc}"
+            )
+            raise
         if not self.connection:
             await self.connect()
 

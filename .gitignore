@@ -18,8 +18,10 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+/lib/
+/lib64/
+# Keep Next.js shared modules trackable
+!frontend/lib/
 parts/
 sdist/
 var/
@@ -73,11 +75,11 @@ out/
 *.tsbuildinfo
 next-env.d.ts
 
-# Local debug/test scratch files
-check_*.py
-debug_*.py
-test_*.py
-test_rtl.py
+# Local debug/test scratch files at repository root only
+/check_*.py
+/debug_*.py
+/test_*.py
+/test_rtl.py
 
 # Application secrets and local configuration
 backend/api/encryption_key.txt

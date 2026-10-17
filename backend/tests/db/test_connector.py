@@ -18,7 +18,7 @@ async def test_connector():
         db_conn = DatabaseConnection(
             id=7,
             db_type="sqlserver",
-            host="172.16.31.12",
+            host="127.0.0.1",
             port=1433,
             username="Sa",
             encrypted_password="dummy",  # Will be overridden in security.py

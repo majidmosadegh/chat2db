@@ -1,13 +1,17 @@
 # Prepare chat2db for a safer public release.
-# Run from a Windows PowerShell terminal with Git, git-filter-repo >= 2.47,
-# and Gitleaks installed. This script rewrites Git history and force-pushes refs.
-# It intentionally DOES NOT change repository visibility to Public.
+# Run from a Windows PowerShell terminal with Git, git-filter-repo (with
+# --sensitive-data-removal), and Gitleaks installed.
+#
+# This script rewrites Git history. It intentionally DOES NOT change repository
+# visibility to Public and DOES NOT push until interactive confirmation.
 
 $ErrorActionPreference = "Stop"
 $RepositoryUrl = "https://github.com/majidmosadegh/chat2db.git"
 $WorkRoot = Join-Path $env:TEMP ("chat2db-public-release-" + [guid]::NewGuid().ToString("N"))
 $RepoPath = Join-Path $WorkRoot "chat2db"
 $BackupPath = Join-Path $WorkRoot "preserved-current-files"
+$RefsBackupPath = Join-Path $WorkRoot "original-refs.txt"
+$OriginalIdsPath = Join-Path $WorkRoot "original-commit-ids.txt"
 
 function Require-Command([string]$Name) {
     if (-not (Get-Command $Name -ErrorAction SilentlyContinue)) {
@@ -30,6 +34,10 @@ if ($LASTEXITCODE -ne 0) { throw "Clone failed. Check GitHub authentication and 
 
 git -C $RepoPath fetch --all --tags --prune
 if ($LASTEXITCODE -ne 0) { throw "Fetching all branches and tags failed." }
+
+git -C $RepoPath show-ref | Out-File -FilePath $RefsBackupPath -Encoding utf8
+git -C $RepoPath rev-list --all | Out-File -FilePath $OriginalIdsPath -Encoding utf8
+Write-Host "Saved original refs to $RefsBackupPath"
 
 # Materialize every remote branch as a local branch so the history-rewrite tool
 # processes all branch histories, not just the default branch and master.
@@ -59,7 +67,8 @@ if ($LASTEXITCODE -ne 0) { throw "Expected application branch 'master' was not f
 # embedding the secret values in this script.
 $preserve = @(
     "backend/db/security.py",
-    "backend/api/database.py"
+    "backend/api/database.py",
+    "backend/services/db_connector.py"
 )
 foreach ($relative in $preserve) {
     $source = Join-Path $RepoPath $relative
@@ -71,19 +80,22 @@ foreach ($relative in $preserve) {
     Copy-Item $source $destination -Force
 }
 
-# Keep a private copy of the fetched refs in the temporary clone. The paths
-# below are removed from every branch/tag history, then the current safe source
-# files are re-added in a new commit.
-$filterArgs = @(
-    "--force",
-    "--invert-paths",
-    "--path", "backend/api/encryption_key.txt",
-    "--path", "backend/db/security.py",
-    "--path", "backend/api/database.py",
-    "--path", "frontend/.env.production"
-)
-& git-filter-repo @filterArgs
-if ($LASTEXITCODE -ne 0) { throw "History rewrite failed. Do not push; inspect the clone and backup." }
+Push-Location $RepoPath
+try {
+    $filterArgs = @(
+        "--force",
+        "--sensitive-data-removal",
+        "--invert-paths",
+        "--path", "backend/api/encryption_key.txt",
+        "--path", "backend/db/security.py",
+        "--path", "backend/api/database.py",
+        "--path", "frontend/.env.production"
+    )
+    & git-filter-repo @filterArgs
+    if ($LASTEXITCODE -ne 0) { throw "History rewrite failed. Do not push; inspect the clone and backup." }
+} finally {
+    Pop-Location
+}
 
 # git-filter-repo removes the origin remote by design.
 git -C $RepoPath remote add origin $RepositoryUrl
@@ -105,7 +117,7 @@ if (Test-Path $productionEnv) {
     Remove-Item $productionEnv -Force
 }
 
-git -C $RepoPath add -- "backend/db/security.py" "backend/api/database.py"
+git -C $RepoPath add -- @preserve
 if ($LASTEXITCODE -ne 0) { throw "Could not stage corrected security files." }
 git -C $RepoPath commit -m "security: restore fail-closed credential handling after history cleanup"
 if ($LASTEXITCODE -ne 0) { throw "Could not commit restored security files." }
@@ -115,8 +127,6 @@ if ($LASTEXITCODE -ne 0) { throw "Could not commit restored security files." }
 git -C $RepoPath branch -f main master
 if ($LASTEXITCODE -ne 0) { throw "Could not align main with master." }
 
-# Scan reachable Git history before publishing rewritten refs. If Gitleaks
-# reports findings, stop before pushing and investigate them first.
 Push-Location $RepoPath
 try {
     & gitleaks git . --redact
@@ -129,17 +139,25 @@ try {
 
 Write-Host ""
 Write-Host "Pre-push checks passed. This will replace branch/tag history on GitHub."
+Write-Host "Backup of original refs: $RefsBackupPath"
+Write-Host "Work root: $WorkRoot"
 $confirmation = Read-Host "Type REWRITE-CHAT2DB-HISTORY to force-push the cleaned refs"
 if ($confirmation -cne "REWRITE-CHAT2DB-HISTORY") {
     throw "Confirmation did not match. Nothing was pushed. The cleaned clone and backup remain at $WorkRoot"
 }
 
-git -C $RepoPath push --force --all origin
-if ($LASTEXITCODE -ne 0) { throw "Branch push failed. Keep the repository private and inspect remote refs." }
-git -C $RepoPath push --force --tags origin
-if ($LASTEXITCODE -ne 0) { throw "Tag push failed. Keep the repository private and inspect remote tags." }
+git -C $RepoPath push --force-with-lease origin main
+if ($LASTEXITCODE -ne 0) { throw "main push failed. Keep the repository private and inspect remote refs." }
+git -C $RepoPath push --force-with-lease origin master
+if ($LASTEXITCODE -ne 0) { throw "master push failed. Keep the repository private and inspect remote refs." }
+
+$tags = @(git -C $RepoPath tag)
+if ($tags.Count -gt 0) {
+    git -C $RepoPath push --force-with-lease --tags origin
+    if ($LASTEXITCODE -ne 0) { throw "Tag push failed. Keep the repository private and inspect remote tags." }
+}
 
 Write-Host ""
 Write-Host "History cleanup was pushed. The repository is still PRIVATE."
-Write-Host "Next: inspect all Gitleaks output/results, run clean-clone tests, review license ownership, then change GitHub default branch to main if needed and only then set visibility to Public."
+Write-Host "Next: run clean-clone tests, set GitHub default branch to main if needed, then set visibility to Public only after final verification."
 Write-Host "Temporary backup location: $WorkRoot"
