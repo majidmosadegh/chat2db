@@ -11,6 +11,7 @@ This checklist is intentionally conservative. Do not switch this repository to p
 - [x] Add ignore rules for local environment files, the encryption-key file, and common database backups.
 - [x] Remove the hard-coded password fallback from `backend/db/security.py`; decryption now requires `CHAT2DB_ENCRYPTION_KEY` and fails closed.
 - [x] Remove the API-key plaintext fallback from `backend/api/database.py`; failed decryption now fails closed.
+- [x] Remove ambiguous password-decryption fallback from `backend/services/db_connector.py`; the connector now expects the credential-handling layer to pass a decrypted password.
 - [ ] Rotate the previously exposed Fernet key and any credential that may have been exposed through the hard-coded fallback. Treat them as compromised; do not reuse them for new installations.
 - [ ] Decide how existing locally stored encrypted database credentials will be migrated or re-entered before rotating the key in any existing installation.
 - [ ] Rewrite Git history on every branch and tag to remove the previously committed encryption key and review/remove any sensitive configuration. Removing a file in a new commit does not remove it from earlier commits.
@@ -18,7 +19,7 @@ This checklist is intentionally conservative. Do not switch this repository to p
 - [ ] Verify that the history-cleanup result no longer contains the key or other secrets, using a fresh clone and automated secret scanning.
 - [ ] Run the app from a clean clone using documented environment variables; verify backend startup, frontend startup, and core chat/SQL flows.
 - [ ] Run available tests and record known failures or missing coverage honestly.
-- [ ] Review SQL execution permissions, destructive query protections, authentication/authorization, logging, CORS, API-key decryption behavior, and secret handling. Do not connect to production data during this review.
+- [ ] Review SQL execution permissions, destructive query protections, authentication/authorization, logging, CORS, API-key decryption behavior, and secret handling. `DirectDatabaseConnector.execute_query` still requires a dedicated safety review before production use. Do not connect to production data during this review.
 - [ ] Ensure no private or customer data, proprietary material owned by others, or files without redistribution rights are included.
 - [ ] Check that README, setup scripts, dependency versions, and links match the actual code.
 - [ ] Confirm the MIT license is on the intended public default branch and its copyright holder/year are correct.
