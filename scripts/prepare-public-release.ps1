@@ -31,6 +31,20 @@ if ($LASTEXITCODE -ne 0) { throw "Clone failed. Check GitHub authentication and 
 git -C $RepoPath fetch --all --tags --prune
 if ($LASTEXITCODE -ne 0) { throw "Fetching all branches and tags failed." }
 
+# Materialize every remote branch as a local branch so the history-rewrite tool
+# processes all branch histories, not just the default branch and master.
+$remoteBranches = @(git -C $RepoPath for-each-ref --format="%(refname:strip=3)" refs/remotes/origin)
+if ($LASTEXITCODE -ne 0) { throw "Could not enumerate remote branches." }
+$localBranches = @(git -C $RepoPath branch --format "%(refname:short)")
+if ($LASTEXITCODE -ne 0) { throw "Could not list local branches." }
+foreach ($remoteBranch in $remoteBranches) {
+    if ([string]::IsNullOrWhiteSpace($remoteBranch) -or $remoteBranch -eq "HEAD") { continue }
+    if ($localBranches -notcontains $remoteBranch) {
+        git -C $RepoPath branch $remoteBranch ("origin/" + $remoteBranch)
+        if ($LASTEXITCODE -ne 0) { throw "Could not materialize remote branch '$remoteBranch'." }
+    }
+}
+
 $branchNames = @(git -C $RepoPath branch --format "%(refname:short)")
 if ($LASTEXITCODE -ne 0) { throw "Could not list local branches." }
 if ($branchNames -contains "master") {
