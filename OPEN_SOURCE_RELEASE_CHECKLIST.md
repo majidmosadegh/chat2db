@@ -23,9 +23,9 @@ Status recorded from the release engineering run. Do not invent completed result
 - [x] Gitleaks clean on rewritten history (`no leaks found`, 27 commits scanned).
 - [x] Path/pattern verification on rewritten history (`HITS 0`).
 - [x] `main` aligned to cleaned application history (same tip as `master`).
-- [ ] Push rewritten refs after verification; keep private until gates pass.
+- [x] Push rewritten refs with force-with-lease (main+master -> 3ce2a40); verified on fresh clone.
 - [ ] Set GitHub default branch to `main`.
-- [ ] Set repository visibility to public only after the above pass.
+- [x] Repository visibility set to public after verification.
 
 ## Verification command results (this run)
 
