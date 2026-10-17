@@ -10,6 +10,7 @@ This checklist is intentionally conservative. Do not switch this repository to p
 - [x] Change encryption setup to require `CHAT2DB_ENCRYPTION_KEY` from the environment instead of silently recreating a fixed key.
 - [x] Add ignore rules for local environment files, the encryption-key file, and common database backups.
 - [x] Remove the hard-coded password fallback from `backend/db/security.py`; decryption now requires `CHAT2DB_ENCRYPTION_KEY` and fails closed.
+- [x] Remove the API-key plaintext fallback from `backend/api/database.py`; failed decryption now fails closed.
 - [ ] Rotate the previously exposed Fernet key and any credential that may have been exposed through the hard-coded fallback. Treat them as compromised; do not reuse them for new installations.
 - [ ] Decide how existing locally stored encrypted database credentials will be migrated or re-entered before rotating the key in any existing installation.
 - [ ] Rewrite Git history on every branch and tag to remove the previously committed encryption key and review/remove any sensitive configuration. Removing a file in a new commit does not remove it from earlier commits.
