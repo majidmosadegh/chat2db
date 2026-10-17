@@ -74,7 +74,15 @@ The existing documentation references a backend at `http://localhost:8000` and f
 
 **Do not connect this project to a production database or sensitive data until the code has been reviewed.** AI-generated SQL is untrusted input. Use least-privilege database credentials, prefer read-only access for exploration, and verify queries before execution.
 
-The repository is currently being prepared for open-source release. Secret handling and Git history need remediation before the repository can safely be made public. Do not reuse or rely on any credentials or encryption keys found in the repository.
+The repository is being prepared for open-source release. Secret handling and Git history still need remediation before the repository can safely be made public. Do not reuse or rely on any credentials or encryption keys found in the repository.
+
+The backend now requires `CHAT2DB_ENCRYPTION_KEY` to be supplied by the environment. Generate a new Fernet key for a fresh installation with:
+
+```bash
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+Store it outside source control (for example, in your deployment secret manager or an untracked local environment file). Do not commit the generated key. Existing installations that have encrypted database credentials need a migration or credential re-entry plan before changing their encryption key. See [OPEN_SOURCE_RELEASE_CHECKLIST.md](OPEN_SOURCE_RELEASE_CHECKLIST.md).
 
 Please report security vulnerabilities privately as described in [SECURITY.md](SECURITY.md), rather than posting exploitable details in a public issue.
 
