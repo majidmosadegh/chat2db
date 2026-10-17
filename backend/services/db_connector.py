@@ -8,48 +8,19 @@ from loguru import logger
 class DirectDatabaseConnector:
     """
     Direct database connector for executing queries.
-    
-    Note: This connector expects the password to be already decrypted.
-    If you pass an encrypted password, it will try to decrypt it using the standard
-    decrypt_password function, but if decryption fails, it will use the password as-is
-    (assuming it's already decrypted or plain text).
+
+    The caller must pass a plaintext password after explicitly retrieving and
+    decrypting it through the application's credential-handling layer. This
+    class deliberately does not guess whether an arbitrary string is encrypted.
     """
     def __init__(self, db_type: str, host: str, port: int, username: str, password: str, database: str):
         self.db_type = db_type.lower()
         self.host = host
         self.port = port
         self.username = username
-        # Try to decrypt password if it's encrypted, otherwise use as-is
-        # Most callers (like db_connector_utils.py) already pass decrypted passwords
-        self.password = self._try_decrypt_password(password)
+        self.password = password or ""
         self.database = database
         self.connection = None
-    
-    def _try_decrypt_password(self, password: str) -> str:
-        """
-        Try to decrypt password if it's encrypted, otherwise return as-is.
-        
-        This handles both cases:
-        1. Password is already decrypted (common case)
-        2. Password is encrypted (rare case - should use decrypt_password before calling)
-        """
-        if not password:
-            return password
-        
-        # Try to decrypt using standard decrypt_password function
-        try:
-            from api.database import decrypt_password
-            decrypted = decrypt_password(password)
-            # Only use decrypted version if it's different (was actually encrypted)
-            # This prevents re-decrypting already decrypted passwords
-            if decrypted != password:
-                return decrypted
-            # If same, it was already plain text, use as-is
-            return password
-        except Exception:
-            # If decryption fails, password is likely already decrypted or plain text
-            # Silently use as-is (this is the expected case)
-            return password
 
     async def connect(self):
         """Establish database connection"""
