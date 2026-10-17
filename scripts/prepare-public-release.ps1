@@ -33,10 +33,12 @@ if ($LASTEXITCODE -ne 0) { throw "Fetching all branches and tags failed." }
 
 $branchNames = @(git -C $RepoPath branch --format "%(refname:short)")
 if ($LASTEXITCODE -ne 0) { throw "Could not list local branches." }
-if ($branchNames -notcontains "master") { throw "Expected application branch 'master' was not found. No rewrite was performed." }
-
-git -C $RepoPath checkout master
-if ($LASTEXITCODE -ne 0) { throw "Could not check out master." }
+if ($branchNames -contains "master") {
+    git -C $RepoPath checkout master
+} else {
+    git -C $RepoPath checkout -b master origin/master
+}
+if ($LASTEXITCODE -ne 0) { throw "Expected application branch 'master' was not found or could not be checked out. No rewrite was pushed." }
 
 # Preserve the currently corrected versions before removing their entire old
 # histories. This removes historical hard-coded credentials/keys without
