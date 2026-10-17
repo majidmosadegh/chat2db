@@ -78,3 +78,18 @@ check_*.py
 debug_*.py
 test_*.py
 test_rtl.py
+
+# Application secrets and local configuration
+backend/api/encryption_key.txt
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# Local databases, exports, and backups
+*.dump
+*.sql.gz
+*.bak
+*.backup
