@@ -39,14 +39,22 @@ wheels/
 .DS_Store
 Thumbs.db
 
-# Environment variables
-.env
-.env.local
+# Environment files: keep only explicitly sanitized examples
+.env*
+!.env.example
+!**/.env.example
 
-# Database
+# Database and local data
 *.db
 *.sqlite
 *.sqlite3
+*.dump
+*.bak
+
+# Secrets and certificates
+*.pem
+*.key
+backend/api/encryption_key.txt
 
 # Node.js
 node_modules/
@@ -59,39 +67,14 @@ lerna-debug.log*
 .next/
 out/
 
-# Production
+# Production/build output
 /build
+.vercel
+*.tsbuildinfo
+next-env.d.ts
 
-# Misc
-.DS_Store
-*.pem
-
-# Debug
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Debug and test files
+# Local debug/test scratch files
 check_*.py
 debug_*.py
 test_*.py
 test_rtl.py
-
-# Local env files
-.env*.local
-
-# Vercel
-.vercel
-
-# TypeScript
-*.tsbuildinfo
-next-env.d.ts
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-
