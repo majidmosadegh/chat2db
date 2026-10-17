@@ -74,7 +74,7 @@ The existing documentation references a backend at `http://localhost:8000` and f
 
 **Do not connect this project to a production database or sensitive data until the code has been reviewed.** AI-generated SQL is untrusted input. Use least-privilege database credentials, prefer read-only access for exploration, and verify queries before execution.
 
-The repository is being prepared for open-source release. Secret handling and Git history still need remediation before the repository can safely be made public. Do not reuse or rely on any credentials or encryption keys found in the repository.
+The repository is still private while release hardening is in progress. The current working tree has been updated to require configured encryption and to fail closed on decryption errors, but the Git history has not yet been rewritten or fully scanned. Do not reuse or rely on any credentials or encryption keys previously present in the repository.
 
 The backend now requires `CHAT2DB_ENCRYPTION_KEY` to be supplied by the environment. Generate a new Fernet key for a fresh installation with:
 
@@ -99,7 +99,7 @@ The original creator has limited time to lead development right now. People inte
 
 ## License
 
-This project is intended to be released under the [MIT License](LICENSE). Do not treat the repository as licensed for reuse until the release is completed and the license is present on the public default branch.
+The current application branch includes an [MIT License](LICENSE). The repository remains private until historical secret cleanup and release verification are complete; confirm the public default branch and license before announcing the release.
 
 ## Project links
 
